@@ -30,6 +30,8 @@ COMFY_URL = "http://127.0.0.1:8188"
 COMFY_OUTPUT = pathlib.Path(r"D:\gen\ComfyUI_windows_portable\ComfyUI\output")
 T2I_WORKFLOW = pathlib.Path(r"D:\llm\openwebui_flux3_t2i.json")
 EDIT_WORKFLOW = pathlib.Path(r"D:\llm\openwebui_flux3_edit.json")
+PROMPTS = pathlib.Path(r"D:\gen\prompts\official")   # системные промпты улучшателя BFL
+UPSAMPLER = "qwen3.5_9b_flux3_prompt_upsampler_int8_convrot.safetensors"
 QUALITY = {  # по карточке модели BFL
     "fast": {"unet": "flux3-image-klein-int8-convrot.safetensors", "steps": 16, "cfg": 1.0},
     "best": {"unet": "flux3-image-klein-base-int8-convrot.safetensors", "steps": 50, "cfg": 3.5},
@@ -139,12 +141,51 @@ def _workflow(path, prompt, quality, seed):
     return wf
 
 
-async def _render(wf, seed, label):
-    """Поставить схему в очередь ComfyUI, дождаться, вернуть путь к файлу и уменьшенную копию."""
+def _add_upsampler(wf, request_text, system_file, image_node=None):
+    """Задание -> официальный улучшатель BFL (TextGenerate в ComfyUI) -> подпись для FLUX; параметры как в схемах BFL."""
+    wf.update({
+        "30": {"class_type": "CLIPLoader", "inputs": {"clip_name": UPSAMPLER, "type": "flux3", "device": "default"}},
+        "31": {"class_type": "PrimitiveStringMultiline",
+               "inputs": {"value": (PROMPTS / system_file).read_text(encoding="utf-8")}},
+        "32": {"class_type": "TextGenerate", "inputs": {
+            "clip": ["30", 0], "prompt": request_text, "max_length": 3584,
+            "sampling_mode": "on", "sampling_mode.temperature": 1.0, "sampling_mode.top_k": 1, "sampling_mode.top_p": 0.95,
+            "sampling_mode.min_p": 0.0, "sampling_mode.repetition_penalty": 1.0, "sampling_mode.seed": 7,
+            "thinking": False, "use_default_template": True, "system_prompt": ["31", 0], "mtp": "off"}},
+        "33": {"class_type": "PreviewAny", "inputs": {"source": ["32", 0]}},
+    })
+    if image_node:
+        wf["32"]["inputs"]["image"] = [image_node, 0]
+    wf["12"]["inputs"]["text"] = ["32", 0]
+
+
+def _save_as(src, out_path, out_size):
+    """Копия результата в проект: формат по расширению (png, jpg, webp, ico), при out_size — вписать в WxH."""
+    dest = pathlib.Path(out_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    img = PILImage.open(src)
+    if out_size:
+        w, h = (int(v) for v in str(out_size).lower().replace("×", "x").split("x"))
+        img = img.copy()
+        img.thumbnail((w, h), PILImage.LANCZOS)
+    ext = dest.suffix.lower()
+    if ext in (".jpg", ".jpeg"):
+        img.convert("RGB").save(dest, "JPEG", quality=92)
+    elif ext == ".webp":
+        img.save(dest, "WEBP", quality=90)
+    elif ext == ".ico":
+        img.save(dest, "ICO", sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256) if s <= max(img.size)])
+    else:
+        img.save(dest, "PNG")
+    return dest, img.size
+
+
+async def _render(wf, seed, label, out_path=None, out_size=None):
+    """Поставить схему в очередь ComfyUI, дождаться; вернуть путь, подпись улучшателя (если был) и уменьшенную копию."""
     try:
         r = await http.post(f"{COMFY_URL}/prompt", json={"prompt": wf, "client_id": uuid.uuid4().hex})
     except httpx.HTTPError as e:
-        return [f"ComfyUI is not reachable ({e}). Is the 'Local AI' stack running?"]
+        return [f"ComfyUI is not reachable ({e}). Start the stack with D:\\llm\\start_all.bat (shortcut 'Local AI')."]
     if r.status_code != 200:
         return [f"ComfyUI rejected the workflow: {r.text[:500]}"]
     prompt_id = r.json()["prompt_id"]
@@ -155,69 +196,100 @@ async def _render(wf, seed, label):
             status = hist.get("status", {})
             if status.get("status_str") == "error":
                 return [f"Generation failed: {json.dumps(status.get('messages', []))[:800]}"]
-            for out in hist.get("outputs", {}).values():
-                for img in out.get("images", []):
-                    if img.get("type") == "output":
-                        path = COMFY_OUTPUT / img.get("subfolder", "") / img["filename"]
-                        preview = PILImage.open(path).convert("RGB")
-                        w, h = preview.size
-                        preview.thumbnail((PREVIEW_SIDE, PREVIEW_SIDE))
-                        buf = io.BytesIO()
-                        preview.save(buf, "JPEG", quality=85)
-                        return [f"Saved {path} ({w}x{h}, {label}, seed {seed}, {time.time() - t0:.0f} s). "
-                                "The preview below is downscaled.", Image(data=buf.getvalue(), format="jpeg")]
             if status.get("completed"):
-                return ["Generation finished without an output image."]
+                caption, path = None, None
+                for out in hist.get("outputs", {}).values():
+                    if out.get("text"):
+                        caption = out["text"][0] if isinstance(out["text"], list) else out["text"]
+                    for img in out.get("images", []):
+                        if img.get("type") == "output":
+                            path = COMFY_OUTPUT / img.get("subfolder", "") / img["filename"]
+                if not path:
+                    return ["Generation finished without an output image."]
+                preview = PILImage.open(path).convert("RGB")
+                w, h = preview.size
+                preview.thumbnail((PREVIEW_SIDE, PREVIEW_SIDE))
+                buf = io.BytesIO()
+                preview.save(buf, "JPEG", quality=85)
+                text = f"Generated {path} ({w}x{h}, {label}, seed {seed}, {time.time() - t0:.0f} s)."
+                if out_path:
+                    dest, size = _save_as(path, out_path, out_size)
+                    text += f" Saved to {dest} ({size[0]}x{size[1]})."
+                if caption:
+                    text += f"\nCaption written by the BFL prompt writer: {caption}"
+                return [text + "\nThe preview below is downscaled.", Image(data=buf.getvalue(), format="jpeg")]
         await asyncio.sleep(1.0)
     return ["Timed out after 15 minutes; the job may still be running in ComfyUI."]
 
 
 @mcp.tool()
-async def generate_image(prompt: str, size: str = "1024x1024", quality: str = "fast", seed: int = 0,
-                         layout: list[dict] | None = None) -> list:
-    """Generate an image with FLUX 3 Image Klein on the local GPU; saves a PNG and returns its path and a preview.
+async def generate_image(prompt: str = "", brief: str = "", size: str = "1024x1024", quality: str = "fast", seed: int = 0,
+                         layout: list[dict] | None = None, out_path: str = "", out_size: str = "") -> list:
+    """Generate an image with FLUX 3 Image Klein on the local GPU; returns its path and a preview, optionally saved into the project.
 
-    The model needs a full scene caption, not a short request: one English prose paragraph of 100-350 words. Start with
-    medium and style ("Full-color outdoor photograph, ...", "Studio photograph, ...", "Flat vector illustration, ..."),
-    then scene, lighting and camera, then every subject with concrete colors, materials, state and frame-relative position
-    (on the left, in the foreground). State absences as what is present ("a bare white wall"); put text that must appear
-    in double quotes with its font, color and placement; describe unusual objects part by part. Compose first: one focal
-    subject, 3-5 elements, reserved empty space for any text; keep rendered text short (small text gets misspelled).
+    Pass either brief or prompt.
+    - brief: a short art-director brief (60-150 words, any language): purpose and audience, what the image shows, one focal
+      subject, 3-5 elements, composition and where text goes, exact text in quotes, palette, light, style, real sizes of
+      important objects. The official BFL prompt writer turns it into the FLUX caption (returned to you). Best for covers,
+      posters, banners, hero images, complex scenes. First use takes 1-4 minutes longer while the writer loads.
+    - prompt: your own full caption, one English prose paragraph of 100-350 words: medium and style first ("Studio photograph,
+      ...", "Flat vector illustration, ..."), then scene, lighting, camera, every subject with colors, materials, size and
+      frame-relative position; text in double quotes with typography and placement; describe what is there instead of
+      negatives ("a clean white background"). Best for simple assets (icons, objects, textures, placeholders). Faster.
 
     Args:
-        prompt: The full English caption described above; with layout, cite each element by id at first mention ("a woman <woman_1>").
-        size: WIDTHxHEIGHT, about 1 megapixel: "1024x1024", "832x1216" (portrait), "1216x832" (landscape), "1344x768" (wide).
-        quality: "fast" (distilled, about 15-30 s) or "best" (base model, 50 steps, several times slower).
+        prompt: Full English caption (prompt mode); with layout, cite each element by id at first mention ("a woman <woman_1>").
+        brief: Short brief for the BFL prompt writer (brief mode).
+        size: Generation size WIDTHxHEIGHT, about 1 megapixel: "1024x1024", "832x1216" (portrait), "1216x832" (landscape),
+            "1344x768" (wide). Pick the aspect ratio of the final asset.
+        quality: "fast" (distilled, about 10-20 s) or "best" (base model, 50 steps, several times slower).
         seed: 0 for random; reuse a seed for a small variation of the same image.
-        layout: Optional composition boxes, 2-6 items {"id": "woman_1", "bbox": [top, left, bottom, right], "desc": "..."} on a
-            0-1000 grid (0,0 = top-left); one per main subject and per text block (ids like "Ru_Text_1", desc quoting the words).
+        layout: Prompt mode only. Composition boxes, 2-6 items {"id": "woman_1", "bbox": [top, left, bottom, right], "desc": "..."}
+            on a 0-1000 grid (0,0 = top-left); one per main subject and per text block.
+        out_path: Optional absolute path to save a copy, format by extension: .png, .jpg, .webp, .ico (multi-size icon).
+        out_size: Optional WxH to fit the saved copy into (keeps aspect ratio), e.g. "512x512" for an icon, "1600x900" for a hero.
     """
+    if not (brief or prompt).strip():
+        return ["Pass brief (short brief for the BFL prompt writer) or prompt (full caption)."]
     seed = seed or random.randint(1, 2**50)
     w, h = _size(size)
     rows = [{"id": str(x["id"]), "bbox": [max(0, min(1000, int(v))) for v in x["bbox"]], "desc": str(x.get("desc", ""))}
             for x in layout or [] if isinstance(x, dict) and x.get("id") and isinstance(x.get("bbox"), list) and len(x["bbox"]) == 4]
-    if rows:  # таблица рамок в формате улучшателя BFL
+    if rows and prompt:  # таблица рамок в формате улучшателя BFL
         prompt = f"{prompt.strip()} {json.dumps(rows, ensure_ascii=False)}"
     wf = _workflow(T2I_WORKFLOW, prompt, quality, seed)
+    if brief.strip():
+        from math import gcd
+        g = gcd(w, h)
+        _add_upsampler(wf, f"TARGET CANVAS: {w // g}:{h // g}\n{brief.strip()}", "flux3_upsampler_t2i.txt")
     wf["7"]["inputs"].update(width=w, height=h, batch_size=1)
     wf["4"]["inputs"].update(width=w, height=h)
-    return await _render(wf, seed, quality if quality in QUALITY else "fast")
+    mode = "brief" if brief.strip() else "prompt"
+    return await _render(wf, seed, f"{quality if quality in QUALITY else 'fast'}, {mode}", out_path or None, out_size or None)
 
 
 @mcp.tool()
-async def edit_image(prompt: str, images: list[str], quality: str = "fast", seed: int = 0) -> list:
+async def edit_image(images: list[str], prompt: str = "", brief: str = "", quality: str = "fast", seed: int = 0,
+                     out_path: str = "", out_size: str = "") -> list:
     """Edit an image file, or combine up to 4 image files into a new image, with FLUX 3 on the local GPU.
 
+    Pass either brief or prompt. Unchanged areas stay as they are.
+
     Args:
+        images: Absolute paths of 1-4 image files; the output takes the size of the first one (about 1 megapixel).
         prompt: English instruction, 50-150 words. For one image: an imperative that describes only the change, its knock-on
             effects (shadows, reflections, what fills a removed area) and ends with a clause naming what stays unchanged.
             For several images: "Create a photograph of ..." saying what to take from the first image, the second image, etc.
-        images: Absolute paths of 1-4 image files; the output takes the size of the first one (about 1 megapixel).
+        brief: Short edit request in any language; the BFL prompt writer looks at the first image and expands it.
         quality: "fast" or "best".
         seed: 0 for random.
+        out_path: Optional absolute path to save a copy (.png, .jpg, .webp, .ico).
+        out_size: Optional WxH to fit the saved copy into.
     """
     if not images:
         return ["No images given."]
+    if not (brief or prompt).strip():
+        return ["Pass brief (short edit request) or prompt (full English instruction)."]
     seed = seed or random.randint(1, 2**50)
     wf = _workflow(EDIT_WORKFLOW, prompt, quality, seed)
     wf["11"]["inputs"]["filename_prefix"] = "mcp/flux3_edit"
@@ -234,7 +306,12 @@ async def edit_image(prompt: str, images: list[str], quality: str = "fast", seed
         node = "20" if i == 0 else f"2{i}0"
         wf[node] = {"class_type": "LoadImage", "inputs": {"image": r.json()["name"]}}
         wf["14"]["inputs"][f"images.image{i}"] = [node, 0]
-    return await _render(wf, seed, f"edit of {len(images[:4])} image(s), {quality}")
+    if brief.strip():
+        request_text = ("Reference images follow in order (the first image, the second image, ...).\n"
+                        f"User request: {brief.strip()}\nOutput the caption.")
+        _add_upsampler(wf, request_text, "flux3_upsampler_edit.txt", image_node="20")
+    mode = "brief" if brief.strip() else "prompt"
+    return await _render(wf, seed, f"edit of {len(images[:4])} image(s), {quality}, {mode}", out_path or None, out_size or None)
 
 
 if __name__ == "__main__":
