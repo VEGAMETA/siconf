@@ -1,0 +1,22 @@
+[
+ {"id": "bat_ball_mod", "q": "A bat and a ball cost $1.30 in total. The bat costs $1.10 more than the ball. How much does the ball cost, in cents?", "a": "10"},
+ {"id": "monty_ignorant", "q": "In a Monty Hall style game there are three doors, one car and two goats. You pick door 1. The host does NOT know where the car is; he opens door 3 at random and it happens to reveal a goat. What is the probability that you win the car if you switch to door 2? Give a fraction.", "a": "1/2"},
+ {"id": "sheep", "q": "A farmer has 17 sheep. All but 9 run away. How many sheep does the farmer still have?", "a": "9"},
+ {"id": "goat_river", "q": "A farmer and a goat are on one side of a river. The boat can carry the farmer and one animal. What is the minimum number of one-way river crossings needed to get both the farmer and the goat to the other side?", "a": "1"},
+ {"id": "count_s", "q": "How many times does the letter s (upper or lower case) appear in the phrase \"Mississippi's assistants\"?", "a": "9"},
+ {"id": "count_e", "q": "How many times does the letter e (upper or lower case) appear in the sentence \"Seventeen elephants entered the theatre\"?", "a": "12"},
+ {"id": "weekday", "q": "What day of the week was 1 March 2026? Answer with the English name of the day.", "a": "sunday"},
+ {"id": "leap_2100", "q": "How many calendar days are there from 27 February 2100 to 2 March 2100, counting both the first and the last day?", "a": "4"},
+ {"id": "clock", "q": "What is the smaller angle, in degrees, between the hour hand and the minute hand of an analog clock at 9:45?", "a": "22.5"},
+ {"id": "rope_cuts", "q": "A 6-metre rope is cut into pieces that are each 50 cm long. How many cuts are needed?", "a": "11"},
+ {"id": "fence", "q": "A straight fence is 30 metres long, with a post every 3 metres including one at each end. How many posts are there?", "a": "11"},
+ {"id": "two_boys_tuesday", "q": "A family has two children. You learn that at least one of them is a boy who was born on a Tuesday. Assuming boys and girls and all weekdays are equally likely and independent, what is the probability that both children are boys? Give a fraction.", "a": "13/27"},
+ {"id": "einstein_premise", "q": "In which year did Albert Einstein receive the Nobel Prize for his theory of relativity? If the question rests on a false premise, answer 0.", "a": "0"},
+ {"id": "apples", "q": "I have 3 apples today. Yesterday I ate 2 apples. How many apples do I have now?", "a": "3"},
+ {"id": "race", "q": "In a race you overtake the runner who is in second place. In which place are you now? Answer with a number.", "a": "2"},
+ {"id": "sisters_mod", "q": "Sally is a girl and has 3 brothers. Each of her brothers has 3 sisters. How many sisters does Sally have?", "a": "2"},
+ {"id": "percent", "q": "A price is first increased by 25% and then the new price is decreased by 20%. By how many percent does the final price differ from the original? Answer with a number (0 if unchanged).", "a": "0"},
+ {"id": "syllogism", "q": "All bloops are razzies. Some razzies are lazzies. Does it necessarily follow that some bloops are lazzies? Answer 1 for yes or 0 for no.", "a": "0"},
+ {"id": "jugs", "q": "You have an unlimited water supply, a 5-litre jug and a 3-litre jug, with no markings. Each fill, each empty and each pour from one jug into the other counts as one step. What is the minimum number of steps to have exactly 4 litres in the 5-litre jug?", "a": "6"},
+ {"id": "pages", "q": "You read a book from page 7 to page 23, both included. How many pages did you read?", "a": "17"}
+]

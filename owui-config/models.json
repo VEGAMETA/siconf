@@ -1,0 +1,71 @@
+[
+  {
+    "id": "gemma-4-26b-a4b",
+    "name": "Gemma 4 26B",
+    "base_model_id": null,
+    "meta": {
+      "profile_image_url": null,
+      "background_image_url": null,
+      "description": "Gemma 4 26B-A4B (Google, QAT), контекст 256K. С размышлениями и поиском в интернете по умолчанию, понимает картинки, хороший русский.",
+      "i18n": null,
+      "capabilities": {
+        "web_search": true,
+        "builtin_tools": true,
+        "citations": true,
+        "file_upload": true,
+        "usage": true,
+        "vision": true
+      },
+      "knowledge": null,
+      "voice": null,
+      "voice_avatar": null,
+      "defaultFeatureIds": [
+        "web_search",
+        "memory",
+        "code_interpreter"
+      ],
+      "toolIds": [
+        "current_chat_search",
+        "flux_studio"
+      ]
+    },
+    "params": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "top_k": 64,
+      "function_calling": "default",
+      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 9780 символов>",
+      "compact_token_threshold": 200000
+    }
+  },
+  {
+    "id": "gemma-4-26b-a4b-fast",
+    "name": "Gemma 4 26B (быстро)",
+    "base_model_id": "gemma-4-26b-a4b",
+    "meta": {
+      "profile_image_url": null,
+      "background_image_url": null,
+      "description": "Gemma 4 без размышлений. Скрыта из выбора: служебная модель для поисковых запросов и заголовков.",
+      "i18n": null,
+      "capabilities": {
+        "web_search": true,
+        "builtin_tools": true,
+        "citations": true,
+        "file_upload": true,
+        "usage": true,
+        "vision": true
+      },
+      "knowledge": null,
+      "voice": null,
+      "voice_avatar": null,
+      "hidden": true
+    },
+    "params": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "top_k": 64,
+      "function_calling": "default",
+      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 8175 символов>"
+    }
+  }
+]

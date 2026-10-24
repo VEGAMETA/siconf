@@ -1,0 +1,9 @@
+{
+  "DEFAULT_MODELS": "gemma-4-26b-a4b",
+  "DEFAULT_PINNED_MODELS": null,
+  "MODEL_ORDER_LIST": [
+    "gemma-4-26b-a4b"
+  ],
+  "DEFAULT_MODEL_METADATA": {},
+  "DEFAULT_MODEL_PARAMS": {}
+}

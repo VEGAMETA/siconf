@@ -1,0 +1,8 @@
+{
+  "memories.background_review.enable": true,
+  "memories.context_char_limit": 4000,
+  "memories.enable": true,
+  "memories.review_interval_turns": 4,
+  "memories.system_context.enable": true,
+  "memories.user_char_limit": 8000
+}

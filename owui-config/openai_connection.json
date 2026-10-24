@@ -1,0 +1,10 @@
+{
+  "ENABLE_OPENAI_API": true,
+  "OPENAI_API_BASE_URLS": [
+    "http://127.0.0.1:8081/v1"
+  ],
+  "OPENAI_API_KEYS": [
+    "local"
+  ],
+  "OPENAI_API_CONFIGS": {}
+}

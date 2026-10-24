@@ -1,0 +1,16 @@
+# секреты и данные — никогда в репозиторий
+.env
+*.env
+.webui_secret_key
+*.db
+*.db-*
+*.bak*
+# окружения и кэш
+.venv/
+__pycache__/
+# модели и результаты
+*.gguf
+*.safetensors
+*.onnx
+results/
+logs/

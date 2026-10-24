@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161b">
+<title>Видеогенератор</title>
+<style>
+  :root {
+    --bg: #14161b; --panel: #1d2027; --panel-2: #262a33; --line: #323743;
+    --fg: #e9eaee; --muted: #9298a6; --accent: #f0a65a; --accent-ink: #1b1309;
+    --bad: #ef6b6b; --ok: #6bd29a;
+    --r: 12px;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body { padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 40px max(14px, env(safe-area-inset-left)); }
+  .wrap { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 4px 0 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  label.lbl, .lbl { font-size: 13px; color: var(--muted); }
+  textarea, input[type=text], input[type=number] {
+    width: 100%; background: var(--panel-2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px; font: inherit; font-size: 16px;
+  }
+  textarea { min-height: 120px; resize: vertical; line-height: 1.4; }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+  .seg button {
+    background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 6px; font: inherit; font-size: 14px; line-height: 1.2; cursor: pointer;
+  }
+  .seg button small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .seg button[aria-pressed=true] { border-color: var(--accent); background: #3a2c1c; }
+  .row { display: flex; flex-direction: column; gap: 6px; }
+  .lora { display: grid; grid-template-columns: auto 1fr 44px; align-items: center; gap: 10px; }
+  .lora .name { font-size: 14px; }
+  .lora .name small { display: block; color: var(--muted); font-size: 11px; }
+  .lora input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  .lora .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  .lora.off .val, .lora.off input[type=range] { opacity: .35; }
+  input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+  details summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  details[open] summary { margin-bottom: 10px; }
+  .go {
+    background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--r);
+    padding: 16px; font: inherit; font-size: 17px; font-weight: 600; cursor: pointer;
+  }
+  .go:disabled { opacity: .5; cursor: default; }
+  .ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+  .status { display: flex; flex-direction: column; gap: 8px; }
+  .status .txt { font-size: 14px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+  .bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .err { color: var(--bad); font-size: 14px; white-space: pre-wrap; }
+  video { width: 100%; border-radius: 10px; background: #000; display: block; }
+  .meta { font-size: 12px; color: var(--muted); }
+  .hist { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .hist .it { display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
+  .hist .it video { aspect-ratio: 1; object-fit: cover; }
+  .hist .it span { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hint { font-size: 12px; color: var(--muted); margin: 0; }
+  .photo { display: flex; gap: 12px; align-items: center; }
+  .photo img { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); flex: none; }
+  .pick { display: inline-block; flex: none; }
+  .ghost.danger { color: var(--bad); border-color: #5a2f33; }
+  a.ghost { text-decoration: none; }
+  b { font-weight: 600; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Видеогенератор</h1>
+
+  <section class="card">
+    <div class="row">
+      <span class="lbl">Модель</span>
+      <div class="seg" id="model">
+        <button type="button" data-v="wan">Wan 2.2 NSFW<small>быстрее, без звука</small></button>
+        <button type="button" data-v="ltx">LTX 2.3<small>со звуком</small></button>
+      </div>
+    </div>
+
+    <div class="row">
+      <span class="lbl">Фото, которое оживить (необязательно)</span>
+      <div class="photo" id="photo-empty">
+        <label class="ghost pick" for="photo-input">Выбрать фото</label>
+        <input id="photo-input" type="file" accept="image/*" hidden>
+        <span class="hint" id="photo-msg">Без фото видео создаётся только по тексту.</span>
+      </div>
+      <div class="photo" id="photo-set" hidden>
+        <img id="photo-img" alt="Выбранное фото">
+        <div class="row" style="gap:4px">
+          <span class="hint" id="photo-info"></span>
+          <button class="ghost" id="photo-clear" type="button">Убрать фото</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <label class="lbl" for="prompt">Что должно происходить в видео</label>
+      <textarea id="prompt" placeholder="Например: a woman walking on a beach at sunset, waves, wind in her hair, cinematic"></textarea>
+      <p class="hint" id="prompt-hint"></p>
+    </div>
+
+    <div class="row" id="aspect-row">
+      <span class="lbl">Формат</span>
+      <div class="seg" id="aspect">
+        <button type="button" data-v="portrait">Вертикально</button>
+        <button type="button" data-v="landscape">Горизонтально</button>
+        <button type="button" data-v="square">Квадрат</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <span class="lbl">Длительность и качество</span>
+      <div class="seg" id="dur">
+        <button type="button" data-v="3">3 сек</button>
+        <button type="button" data-v="5">5 сек</button>
+      </div>
+      <div class="seg" id="quality">
+        <button type="button" data-v="normal">Обычное<small id="q-normal"></small></button>
+        <button type="button" data-v="high">Высокое<small id="q-high"></small></button>
+      </div>
+    </div>
+
+    <div class="row" id="ltx-style-row">
+      <span class="lbl">Стиль LTX</span>
+      <div class="seg" id="ltxStyle">
+        <button type="button" data-v="calm">Плавно<small>без речи, CFG 1</small></button>
+        <button type="button" data-v="cinema">Кино<small>больше движения и звука, CFG 3.5</small></button>
+      </div>
+    </div>
+
+    <div class="row" id="lora-box">
+      <span class="lbl">LoRA для Wan</span>
+      <div id="loras" class="row" style="gap:14px"></div>
+    </div>
+
+    <details>
+      <summary>Дополнительно</summary>
+      <div class="row">
+        <label class="lbl" for="neg">Чего не должно быть (негативный запрос)</label>
+        <textarea id="neg" style="min-height:70px"></textarea>
+        <p class="hint" id="neg-hint"></p>
+      </div>
+      <div class="row" id="istr-row">
+        <span class="lbl">Насколько держаться фото (LTX): <b id="istr-val"></b></span>
+        <input id="istr" type="range" min="0.5" max="1" step="0.01" style="accent-color:var(--accent)">
+        <p class="hint">Меньше — больше свободы и движения, больше — ближе к исходному фото.</p>
+      </div>
+      <div class="row">
+        <label class="lbl" for="seed">Seed (пусто — случайный)</label>
+        <input id="seed" type="number" inputmode="numeric" placeholder="случайный">
+      </div>
+    </details>
+
+    <button class="go" id="go" type="button">Генерировать</button>
+  </section>
+
+  <section class="card status" id="status" hidden>
+    <div class="txt"><span id="st-text">В очереди…</span><button class="ghost" id="cancel" type="button">Отменить</button></div>
+    <div class="bar"><i id="st-bar"></i></div>
+    <div class="err" id="st-err" hidden></div>
+  </section>
+
+  <section class="card" id="result" hidden>
+    <video id="res-video" controls playsinline loop></video>
+    <div class="meta" id="res-meta"></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap">
+      <a class="ghost" id="res-dl" download>Скачать</a>
+      <button class="ghost" id="res-again" type="button">Ещё раз с другим seed</button>
+      <button class="ghost danger" id="res-del" type="button">Удалить</button>
+    </div>
+  </section>
+
+  <section class="card" id="hist-card" hidden>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+      <span class="lbl">Последние видео</span>
+      <button class="ghost danger" id="hist-clear" type="button">Очистить всё</button>
+    </div>
+    <div class="hist" id="hist"></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---------- настройки моделей ----------
+  const SIZES = {
+    wan: { normal: { portrait: [480, 832], landscape: [832, 480], square: [640, 640] },
+           high:   { portrait: [720, 1280], landscape: [1280, 720], square: [960, 960] } },
+    ltx: { normal: { portrait: [448, 768], landscape: [768, 448], square: [576, 576] },
+           high:   { portrait: [704, 1280], landscape: [1280, 704], square: [960, 960] } },
+  };
+  const FPS = { wan: 16, ltx: 24 };
+  // Wan: длина 4n+1, LTX: 8n+1
+  const FRAMES = { wan: { 3: 49, 5: 81 }, ltx: { 3: 73, 5: 121 } };
+  // speaking/talking в негативе — иначе LTX может озвучить сам текст запроса
+  const LTX_NEG = "speaking, talking, singing, background music, missing limbs, deformities, low quality, " +
+    "idle movement, low motion, text or fonts, foreign characters, ascii, emojis, printed words, blank screens, hard cuts between scenes";
+  const LORAS = [
+    { id: "dr34ml4y", t2v: "wan\\DR34ML4Y_T2V_14B_LOW_V2.safetensors", i2v: "wan\\DR34ML4Y_I2V_14B_LOW_V2.safetensors", name: "DR34ML4Y", note: "общий NSFW", on: true, w: 0.7 },
+    { id: "detailz", t2v: "wan\\detailz-wan.safetensors", name: "Detailz", note: "детализация", on: true, w: 0.4 },
+    { id: "genitals", t2v: "wan\\genitals_helper_v1.0_e219.safetensors", name: "Genitals helper", note: "анатомия", on: false, w: 0.6 },
+    { id: "ultrareal", t2v: "wan\\Lenovo.safetensors", name: "UltraReal", note: "фотореализм", on: false, w: 0.6 },
+  ];
+  const STEP = { wan: 16, ltx: 32 }; // кратность сторон кадра
+
+  // ---------- состояние (запоминается в браузере) ----------
+  const DEFAULTS = { model: "wan", aspect: "portrait", dur: "5", quality: "normal", prompt: "", neg: "",
+                     photo: null, istr: 0.89, ltxStyle: "calm",
+                     loras: Object.fromEntries(LORAS.map(l => [l.id, { on: l.on, w: l.w }])) };
+  let st;
+  try { st = Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem("simplegen") || "{}")); } catch { st = { ...DEFAULTS }; }
+  st.loras = Object.assign({}, DEFAULTS.loras, st.loras || {});
+  const save = () => { try { localStorage.setItem("simplegen", JSON.stringify(st)); } catch {} };
+
+  const $ = id => document.getElementById(id);
+  // один и тот же clientId между перезагрузками — ComfyUI продолжит слать прогресс этой вкладке
+  let clientId = null;
+  try { clientId = localStorage.getItem("simplegen-client"); } catch {}
+  if (!clientId) {
+    clientId = crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2);
+    try { localStorage.setItem("simplegen-client", clientId); } catch {}
+  }
+
+  // ---------- UI ----------
+  function bindSeg(id, key) {
+    const el = $(id);
+    el.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { st[key] = b.dataset.v; save(); render(); }));
+  }
+  bindSeg("model", "model"); bindSeg("aspect", "aspect"); bindSeg("dur", "dur"); bindSeg("quality", "quality"); bindSeg("ltxStyle", "ltxStyle");
+
+  const loraBox = $("loras");
+  LORAS.forEach(l => {
+    const row = document.createElement("div"); row.className = "lora"; row.id = "lora-" + l.id;
+    row.innerHTML = `<input type="checkbox" aria-label="${l.name}"><div class="name">${l.name}<small>${l.note}</small></div>
+      <span class="val"></span><input type="range" min="0" max="1.5" step="0.05" aria-label="Сила ${l.name}">`;
+    const [cb, , val, rng] = [row.children[0], row.children[1], row.children[2], row.children[3]];
+    cb.addEventListener("change", () => { st.loras[l.id].on = cb.checked; save(); render(); });
+    rng.addEventListener("input", () => { st.loras[l.id].w = +rng.value; save(); render(); });
+    loraBox.appendChild(row);
+  });
+
+  $("prompt").value = st.prompt; $("neg").value = st.neg;
+  $("prompt").addEventListener("input", e => { st.prompt = e.target.value; save(); });
+  $("neg").addEventListener("input", e => { st.neg = e.target.value; save(); });
+  $("istr").addEventListener("input", e => { st.istr = +e.target.value; save(); render(); });
+
+  // Размер кадра: по пресету, а с фото — по пропорциям фото при той же площади кадра
+  function frameSize(model, quality) {
+    const preset = SIZES[model][quality];
+    if (!st.photo) return preset[st.aspect];
+    const [pw, ph] = preset.portrait, area = pw * ph, r = st.photo.w / st.photo.h, s = STEP[model];
+    let w = Math.round(Math.sqrt(area * r) / s) * s, h = Math.round(Math.sqrt(area / r) / s) * s;
+    return [Math.max(s * 8, w), Math.max(s * 8, h)];
+  }
+
+  // ---------- фото ----------
+  const photoUrl = p => `/view?filename=${encodeURIComponent(p.name)}&subfolder=${encodeURIComponent(p.subfolder || "")}&type=input`;
+  $("photo-input").addEventListener("change", async e => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    $("photo-msg").textContent = "Загружаю фото…";
+    try {
+      const bmp = await createImageBitmap(f); // учитывает поворот из EXIF, как и ComfyUI
+      const dims = { w: bmp.width, h: bmp.height }; bmp.close?.();
+      const fd = new FormData(); fd.append("image", f, f.name || "photo.jpg"); fd.append("type", "input");
+      const r = await fetch("/upload/image", { method: "POST", body: fd });
+      if (!r.ok) throw new Error("сервер ответил " + r.status);
+      const j = await r.json();
+      st.photo = { name: j.name, subfolder: j.subfolder || "", ...dims }; save();
+      $("photo-msg").textContent = "Без фото видео создаётся только по тексту.";
+      render();
+    } catch (err) { $("photo-msg").textContent = "Не удалось загрузить фото: " + err.message; }
+  });
+  $("photo-clear").addEventListener("click", () => { st.photo = null; save(); render(); });
+
+  function render() {
+    for (const [id, key] of [["model", "model"], ["aspect", "aspect"], ["dur", "dur"], ["quality", "quality"], ["ltxStyle", "ltxStyle"]])
+      $(id).querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === st[key])));
+    $("ltx-style-row").hidden = st.model !== "ltx";
+    $("q-normal").textContent = frameSize(st.model, "normal").join("×");
+    $("q-high").textContent = frameSize(st.model, "high").join("×") + ", дольше";
+    $("lora-box").hidden = st.model !== "wan";
+    $("photo-empty").hidden = !!st.photo; $("photo-set").hidden = !st.photo; $("aspect-row").hidden = !!st.photo;
+    if (st.photo) {
+      $("photo-img").src = photoUrl(st.photo);
+      $("photo-info").textContent = `Фото ${st.photo.w}×${st.photo.h}. Формат видео подстроится под него.`;
+    }
+    $("istr-row").hidden = !(st.photo && st.model === "ltx");
+    $("istr").value = st.istr; $("istr-val").textContent = st.istr.toFixed(2);
+    $("prompt-hint").textContent = st.model === "ltx"
+      ? "LTX делает видео со звуком и может озвучить текст запроса как реплику. Поэтому описывайте сцену, а не давайте команды: не «use this image, make…», а «a woman slowly turns her head, soft breathing, warm light». Нужные звуки тоже описывайте словами."
+      : (st.photo ? "Опишите, что происходит с тем, что на фото: движение, действие, камера. Лучше по-английски."
+                  : "Лучше всего модели понимают английский. Описывайте сцену, действие, камеру и свет.");
+    $("neg-hint").textContent = st.model === "wan" || st.ltxStyle === "calm"
+      ? "При CFG 1 негативный запрос почти не влияет."
+      : "Пусто — подставится стандартный список (речь, музыка, уродства, текст, склейки).";
+    LORAS.forEach(l => {
+      const row = $("lora-" + l.id), v = st.loras[l.id];
+      row.classList.toggle("off", !v.on);
+      row.children[0].checked = v.on; row.children[3].value = v.w; row.children[2].textContent = v.w.toFixed(2);
+    });
+  }
+  render();
+
+  // ---------- сборка процесса ----------
+  const STAGES = {
+    wan: { "1": "Загрузка модели", "6": "Обработка запроса", "9": "Генерация", "10": "Сборка кадров", "11": "Сохранение видео" },
+    ltx: { "1": "Загрузка модели", "2": "Обработка запроса", "3": "Генерация", "5": "Сборка кадров", "6": "Звук", "7": "Сохранение видео" },
+  };
+  const rndSeed = () => Math.floor(Math.random() * 2 ** 48);
+
+  function buildWan(p, seed) {
+    const [w, h] = frameSize("wan", st.quality), length = FRAMES.wan[st.dur], photo = st.photo;
+    const g = {
+      "1": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "wan2.2-rapid-mega-aio-nsfw-v12.2.safetensors" } },
+    };
+    let model = ["1", 0], n = 20;
+    LORAS.forEach(l => {
+      const v = st.loras[l.id];
+      if (!v.on || v.w <= 0) return;
+      const file = photo && l.i2v ? l.i2v : l.t2v;
+      g[String(n)] = { class_type: "LoraLoaderModelOnly", inputs: { model, lora_name: file, strength_model: v.w } };
+      model = [String(n), 0]; n++;
+    });
+    // Mega: без фото сила VACE 0; с фото — фото становится первым кадром, сила 1
+    const vace = { positive: ["6", 0], negative: ["7", 0], vae: ["1", 2],
+                   width: w, height: h, length, batch_size: 1, strength: photo ? 1.0 : 0.0 };
+    if (photo) {
+      Object.assign(g, {
+        "12": { class_type: "LoadImage", inputs: { image: photo.subfolder ? `${photo.subfolder}/${photo.name}` : photo.name } },
+        "13": { class_type: "ImageScale", inputs: { image: ["12", 0], upscale_method: "lanczos", width: w, height: h, crop: "center" } },
+        "14": { class_type: "WanVideoVACEStartToEndFrame", inputs: { start_image: ["13", 0], num_frames: length,
+                empty_frame_level: 0.5, start_index: 0, end_index: -1 } },
+      });
+      vace.control_video = ["14", 0]; vace.control_masks = ["14", 1];
+    }
+    Object.assign(g, {
+      "5": { class_type: "ModelSamplingSD3", inputs: { model, shift: 8.0 } },
+      "6": { class_type: "CLIPTextEncode", inputs: { clip: ["1", 1], text: p } },
+      "7": { class_type: "CLIPTextEncode", inputs: { clip: ["1", 1], text: st.neg || "" } },
+      "8": { class_type: "WanVaceToVideo", inputs: vace },
+      // для Mega v12 автор рекомендует dpmpp_sde/beta
+      "9": { class_type: "KSampler", inputs: { model: ["5", 0], seed, steps: 4, cfg: 1.0, sampler_name: "dpmpp_sde",
+             scheduler: "beta", positive: ["8", 0], negative: ["8", 1], latent_image: ["8", 2], denoise: 1.0 } },
+      "10": { class_type: "VAEDecode", inputs: { samples: ["9", 0], vae: ["1", 2] } },
+      "11": { class_type: "VHS_VideoCombine", inputs: { images: ["10", 0], frame_rate: FPS.wan, loop_count: 0,
+              filename_prefix: "simple/wan", format: "video/h264-mp4", pix_fmt: "yuv420p", crf: 19,
+              save_metadata: true, trim_to_audio: false, pingpong: false, save_output: true } },
+    });
+    return { graph: g, stages: STAGES.wan, size: [w, h] };
+  }
+
+  function buildLtx(p, seed) {
+    const [w, h] = frameSize("ltx", st.quality), photo = st.photo;
+    const g = {
+      "1": { class_type: "LTXV23ModelsLoader", inputs: {
+        unet_name: "ltxv23_uncensored_v1.4_Q4_K_M.gguf",
+        text_encoder_name: "gemma-3-12b-it-ablit-norms-biproj-Q4_K_M.gguf",
+        projections_name: "ltxv23_uncensored_v1.4_projections.safetensors",
+        video_vae_name: "ltxv23_uncensored_v1.4_video_vae.safetensors",
+        audio_vae_name: "ltxv23_uncensored_v1.4_audio_vae.safetensors" } },
+      "2": { class_type: "LTXV23ImgToVideo", inputs: { clip: ["1", 1], vae: ["1", 2], audio_vae: ["1", 3],
+             prompt: p, negative_prompt: st.neg || LTX_NEG, width: w, height: h, length: FRAMES.ltx[st.dur],
+             frame_rate: FPS.ltx, batch_size: 1, image_strength: st.istr, length_from_audio: false } },
+      "3": { class_type: "LTXV23KSampler", inputs: { model: ["1", 0], positive: ["2", 0], negative: ["2", 1],
+             latent_image: ["2", 2], seed, steps: 8, cfg: st.ltxStyle === "calm" ? 1.0 : 3.5, sampler_name: "euler_ancestral",
+             schedule: "dmd (8 steps)", denoise: 1.0 } },
+      "4": { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: ["3", 0] } },
+      "5": { class_type: "VAEDecode", inputs: { samples: ["4", 0], vae: ["1", 2] } },
+      "6": { class_type: "VAEDecodeAudio", inputs: { samples: ["4", 1], vae: ["1", 3] } },
+      "7": { class_type: "VHS_VideoCombine", inputs: { images: ["5", 0], audio: ["6", 0], frame_rate: FPS.ltx,
+             loop_count: 0, filename_prefix: "simple/ltx", format: "video/h264-mp4", pix_fmt: "yuv420p", crf: 19,
+             save_metadata: true, trim_to_audio: false, pingpong: false, save_output: true } },
+    };
+    if (photo) {
+      g["12"] = { class_type: "LoadImage", inputs: { image: photo.subfolder ? `${photo.subfolder}/${photo.name}` : photo.name } };
+      g["2"].inputs.image = ["12", 0]; // узел сам подгоняет фото под кадр с обрезкой по центру
+    }
+    return { graph: g, stages: STAGES.ltx, size: [w, h] };
+  }
+
+  // ---------- выполнение ----------
+  let current = null; // { id, stages, startedAt, meta }
+  let pollTimer = null;
+
+  function setStatus(text, frac) {
+    $("status").hidden = false;
+    $("st-text").textContent = text;
+    if (frac != null) $("st-bar").style.width = Math.round(frac * 100) + "%";
+  }
+  function showError(msg) {
+    $("st-err").hidden = false; $("st-err").textContent = msg;
+    $("st-text").textContent = "Ошибка"; $("cancel").hidden = true; $("go").disabled = false;
+    current = null; clearInterval(pollTimer);
+  }
+
+  async function generate(seedOverride) {
+    const p = $("prompt").value.trim();
+    if (!p) { $("prompt").focus(); return; }
+    const seedIn = $("seed").value.trim();
+    const seed = seedOverride ?? (seedIn ? Number(seedIn) : rndSeed());
+    const job = st.model === "wan" ? buildWan(p, seed) : buildLtx(p, seed);
+    const meta = { model: st.model, prompt: p, seed, size: job.size, dur: st.dur, photo: st.photo?.name || null };
+    $("go").disabled = true; $("st-err").hidden = true; $("cancel").hidden = false;
+    setStatus("Отправляю…", 0);
+    try {
+      const r = await fetch("/prompt", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: job.graph, client_id: clientId, extra_data: { simplegen: meta } }) });
+      const j = await r.json();
+      if (!r.ok || j.error) {
+        const nodeErr = j.node_errors ? Object.values(j.node_errors).map(e => e.errors?.map(x => x.message + ": " + x.details).join("; ")).join("\n") : "";
+        return showError((j.error?.message || "Сервер отклонил задание") + (nodeErr ? "\n" + nodeErr : ""));
+      }
+      current = { id: j.prompt_id, stages: job.stages, startedAt: Date.now(), meta };
+      setStatus(j.number > 0 ? `В очереди (перед вами ${j.number})` : "В очереди…", 0);
+      clearInterval(pollTimer); pollTimer = setInterval(poll, 4000);
+    } catch (e) { showError("Не удалось связаться с ComfyUI: " + e.message); }
+  }
+
+  async function poll() {
+    if (!current) return;
+    try {
+      const r = await fetch("/history/" + current.id); const h = await r.json();
+      const e = h[current.id]; if (!e) return;
+      finish(e);
+    } catch {}
+  }
+
+  function videoFrom(outputs) {
+    for (const o of Object.values(outputs || {})) for (const g of (o.gifs || [])) return g;
+    return null;
+  }
+
+  function finish(entry) {
+    if (!current) return;
+    const cur = current; current = null; clearInterval(pollTimer);
+    const s = entry.status || {};
+    if (s.status_str === "error") {
+      const m = (s.messages || []).find(x => x[0] === "execution_error");
+      return showError(m ? `${m[1].node_type}: ${m[1].exception_message}` : "Генерация завершилась с ошибкой");
+    }
+    const v = videoFrom(entry.outputs);
+    if (!v) { if (s.status_str === "success") return showError("Видео не найдено в результатах"); $("status").hidden = true; $("go").disabled = false; return; }
+    const secs = Math.round((Date.now() - cur.startedAt) / 1000);
+    setStatus(`Готово за ${secs} с`, 1); $("cancel").hidden = true; $("go").disabled = false;
+    showResult(v, cur.meta, cur.id);
+    loadHistory();
+  }
+
+  function viewUrl(v) {
+    return `/view?filename=${encodeURIComponent(v.filename)}&subfolder=${encodeURIComponent(v.subfolder || "")}&type=${v.type || "output"}`;
+  }
+  function showResult(v, meta, promptId) {
+    $("result").hidden = false;
+    $("res-del").onclick = async () => {
+      if (!confirm("Удалить это видео с компьютера?")) return;
+      try {
+        await fetch("/simple/delete", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: v.filename, prompt_id: promptId }) });
+      } catch {}
+      $("res-video").removeAttribute("src"); $("res-video").load(); $("result").hidden = true;
+      loadHistory();
+    };
+    const url = viewUrl(v);
+    $("res-video").src = url; $("res-dl").href = url; $("res-dl").setAttribute("download", v.filename);
+    $("res-meta").textContent = meta
+      ? `${meta.model === "wan" ? "Wan 2.2" : "LTX 2.3"} · ${meta.size?.join("×") || ""} · seed ${meta.seed}\n${meta.prompt}`
+      : v.filename;
+    $("res-again").onclick = () => { if (meta) { $("prompt").value = meta.prompt; st.prompt = meta.prompt; st.model = meta.model; save(); render(); } generate(rndSeed()); };
+    $("res-video").play().catch(() => {});
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  $("go").addEventListener("click", () => generate());
+  $("cancel").addEventListener("click", async () => {
+    if (!current) return;
+    const id = current.id;
+    try {
+      await fetch("/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ delete: [id] }) });
+      await fetch("/interrupt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt_id: id }) });
+    } catch {}
+    current = null; clearInterval(pollTimer);
+    setStatus("Отменено", 0); $("cancel").hidden = true; $("go").disabled = false;
+    setTimeout(resumeFromQueue, 500);
+  });
+
+  // ---------- прогресс через WebSocket ----------
+  function connectWs() {
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?clientId=${clientId}`);
+    ws.onmessage = ev => {
+      if (typeof ev.data !== "string" || !current) return;
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      const d = m.data || {};
+      if (d.prompt_id && d.prompt_id !== current.id) return;
+      if (m.type === "execution_start") setStatus("Начинаю…", 0.02);
+      else if (m.type === "executing" && d.node && current.stages[d.node]) setStatus(current.stages[d.node] + "…", null);
+      else if (m.type === "progress" && d.max) {
+        const stage = current.stages[d.node] || "Генерация";
+        setStatus(`${stage}: шаг ${d.value} из ${d.max}`, 0.1 + 0.8 * d.value / d.max);
+      }
+      else if (m.type === "execution_error") poll();
+      else if (m.type === "executing" && d.node === null) poll();
+      else if (m.type === "execution_success") poll();
+    };
+    ws.onclose = () => setTimeout(connectWs, 2000);
+  }
+  connectWs();
+
+  // ---------- история ----------
+  async function loadHistory() {
+    try {
+      const r = await fetch("/history?max_items=40"); const h = await r.json();
+      const items = Object.entries(h).map(([id, e]) => {
+        const v = videoFrom(e.outputs);
+        const meta = e.prompt?.[3]?.simplegen;
+        const ts = (e.status?.messages || []).find(x => x[0] === "execution_start")?.[1]?.timestamp || 0;
+        return { id, v, meta, ts };
+      }).filter(x => x.v && x.v.subfolder === "simple" && /^(wan|ltx)_/.test(x.v.filename))
+        .sort((a, b) => b.ts - a.ts).slice(0, 12);
+      const box = $("hist"); box.textContent = "";
+      $("hist-card").hidden = items.length === 0;
+      for (const it of items) {
+        const d = document.createElement("div"); d.className = "it";
+        const vid = document.createElement("video"); vid.src = viewUrl(it.v) + "#t=0.5"; vid.muted = true; vid.playsInline = true; vid.preload = "metadata";
+        const cap = document.createElement("span"); cap.textContent = it.meta?.prompt || it.v.filename;
+        d.append(vid, cap);
+        d.addEventListener("click", () => showResult(it.v, it.meta, it.id));
+        box.appendChild(d);
+      }
+    } catch {}
+  }
+  // ---------- после перезагрузки: найти свои задания в очереди сервера ----------
+  async function resumeFromQueue() {
+    if (current) return;
+    try {
+      const q = await (await fetch("/queue")).json();
+      const mine = it => it?.[3]?.simplegen;
+      const running = (q.queue_running || []).find(mine);
+      const pending = (q.queue_pending || []).filter(mine).sort((a, b) => a[0] - b[0]);
+      const it = running || pending[0];
+      if (!it) return;
+      const meta = it[3].simplegen;
+      current = { id: it[1], stages: STAGES[meta.model] || {}, startedAt: Date.now(), meta };
+      $("go").disabled = true; $("st-err").hidden = true; $("cancel").hidden = false;
+      const others = pending.length - (running ? 0 : 1);
+      setStatus(running ? "Генерируется…" + (others > 0 ? ` (ещё ${others} в очереди)` : "")
+                        : `В очереди (заданий перед ним: ${(q.queue_running || []).length + pending.indexOf(it)})`, running ? 0.1 : 0);
+      clearInterval(pollTimer); pollTimer = setInterval(poll, 4000);
+    } catch {}
+  }
+
+  // после завершения одного задания — подхватить следующее своё из очереди
+  const finishOrig = finish;
+  finish = entry => { finishOrig(entry); setTimeout(resumeFromQueue, 500); };
+
+  $("hist-clear").addEventListener("click", async () => {
+    if (!confirm("Удалить все видео этой страницы с компьютера и очистить историю?")) return;
+    try { await fetch("/simple/clear", { method: "POST" }); } catch {}
+    $("result").hidden = true; $("res-video").removeAttribute("src");
+    loadHistory();
+  });
+  loadHistory();
+  resumeFromQueue();
+})();
+</script>
+</body>
+</html>

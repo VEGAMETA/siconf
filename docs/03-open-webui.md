@@ -1,0 +1,70 @@
+# Open WebUI
+
+Версия **0.12.3**, стоит как `uv tool` (Python 3.12). Данные лежат в `D:\llm\open-webui`, порт 3000. Запуск — `llm\start_webui.bat`. Почти всё настраивается через API скриптом `llm\owui_setup.py` (ключ берётся из окружения), снимок итоговых настроек лежит в `owui-config/`.
+
+## Переменные запуска (start_webui.bat)
+
+| Переменная | Зачем |
+|---|---|
+| `OPENAI_API_BASE_URL=http://127.0.0.1:8081/v1` | через посредника `think_proxy` |
+| `ENABLE_OLLAMA_API=false` | Ollama не нужна |
+| `PYTHONUTF8=1` | без этого Open WebUI падает на кириллице при записи кэша озвучки (Windows) |
+| `NO_PROXY=*` | защита от SSRF блокирует соединения через прокси v2rayN на 127.0.0.1, и страницы из поиска не грузятся. Поэтому Open WebUI ходит в интернет напрямую |
+
+Адрес подключения хранится в базе (`OPENAI_API_BASE_URLS`), переменная окружения работает только при первом запуске. Меняется через `POST /openai/config/update`.
+
+## Модель
+
+В выборе одна модель — **Gemma 4 26B** (`gemma-4-26b-a4b`), она же по умолчанию.
+
+| Параметр | Значение |
+|---|---|
+| Системный промпт | `prompts/system_prompt_en.txt` + `prompts/thinking_plan_en.txt` |
+| `function_calling` | `default`, в этой версии это то же, что native |
+| Включено по умолчанию (`defaultFeatureIds`) | `web_search`, `memory`, `code_interpreter` |
+| Инструменты (`toolIds`) | `current_chat_search`, `flux_studio` |
+| `compact_token_threshold` | 200000 |
+| Зрение | да |
+
+Скрытая служебная модель `gemma-4-26b-a4b-fast` — та же Gemma без размышлений (`enable_thinking: false`). Она делает поисковые запросы, заголовки и теги: `TASK_MODEL_EXTERNAL`, `TASK_MODEL_PARAMS = {max_tokens: 8192, enable_thinking: false}`. Работает на уже загруженной модели, без переключения.
+
+## Поиск в интернете
+
+- **SearXNG** в Docker внутри WSL Debian, порт 127.0.0.1:8888 (см. `searxng/`).
+- `WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL=http://127.0.0.1:8888/search?q=<query>`, 8 результатов.
+- `BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL=true`: модель читает найденные страницы целиком. Встроенный маленький английский эмбеддер терял конкретику.
+- WSL усыпляет Debian через несколько секунд простоя. Поэтому `start_webui.bat` держит «якорь» `wsl -d Debian --exec sleep infinity`.
+- С адреса пользователя реально отвечают Brave, Google CSE и Bing. DuckDuckGo и Startpage отдают капчу, Яндекс — ошибку разбора.
+
+## Память и прошлые беседы
+
+- Встроенные `search_chats` и `view_chat` ищут по другим беседам, `add_memory` и связанные инструменты работают с памятью.
+- Фоновое пополнение памяти включается только в базе, таблица `config`: `memories.background_review.enable=true`, `review_interval_turns=4`, `user_char_limit=8000`, `context_char_limit=4000`. Снимок — `owui-config/memories_db.json`.
+
+## Сжатие длинных бесед
+
+`POST /api/v1/chats/config`: сжатие включено, порог 80K (у Gemma переопределён на 200K), потолок 200K, дословно остаются последние 40%, сжимает сама модель беседы. Сжатие срабатывает только на стыках — перед запросом и между вызовами инструментов, в середину генерации не вмешивается.
+
+## Свои инструменты (`llm/tools`)
+
+- **`current_chat_search`** — поиск по **полной, несжатой** истории текущей беседы: `search_current_chat(query)` и `read_current_chat_message(position)`. Встроенный `search_chats` текущую беседу исключает, а `view_chat` отдаёт её целиком. Нужен, чтобы после сжатия модель могла найти и перепроверить точные детали.
+- **`flux_studio`** — картинки FLUX 3, см. [06-images.md](06-images.md).
+
+## Интерпретатор кода
+
+Встроенный, движок Pyodide (Python в браузере, работает и на телефоне), включён по умолчанию. Промпт требует точные подсчёты и арифметику делать кодом.
+
+## Озвучка
+
+Piper на CPU, свой OpenAI-совместимый сервер `llm/tts/server.py` на 127.0.0.1:5005. Голоса denis, dmitri (по умолчанию), irina, ruslan.
+
+Нормализация текста перед чтением:
+- убирает markdown, код, формулы и ссылки;
+- пишет числа словами: «82,6» как дробь, «3.12» как «три точка двенадцать»; слитые с буквами (`b11852`, `26B`) не трогает;
+- убирает пробел перед знаком препинания: на таком пробеле Piper обрывал фразу.
+
+Open WebUI: TTS engine `openai`, URL `http://127.0.0.1:5005/v1`, модель `piper`.
+
+## Картинки встроенными средствами
+
+Кнопка «Изображение» тоже переведена на FLUX 3 (`owui-config/images.json`), но по умолчанию выключена, чтобы у модели не было двух генераторов. Основной путь — инструмент `flux_studio`.

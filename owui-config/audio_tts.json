@@ -1,0 +1,59 @@
+{
+  "realtime": {
+    "ENABLED": false,
+    "PROVIDER": "openai",
+    "AUTH_TYPE": "<redacted>",
+    "OPENAI_API_BASE_URL": "https://api.openai.com/v1",
+    "OPENAI_API_KEY": "",
+    "MODEL": "gpt-realtime-2.1-mini",
+    "VOICE": "marin",
+    "TRANSCRIPTION_MODEL": "gpt-transcribe",
+    "INPUT_PARAMS": null,
+    "REALTIME_CALL_PROMPT_TEMPLATE": null
+  },
+  "tts": {
+    "OPENAI_API_BASE_URL": "http://127.0.0.1:5005/v1",
+    "OPENAI_API_KEY": "local",
+    "OPENAI_PARAMS": {},
+    "API_KEY": "",
+    "ENGINE": "openai",
+    "MODEL": "piper",
+    "VOICE": "dmitri",
+    "REALTIME_TTS_PROMPT_TEMPLATE": null,
+    "SPLIT_ON": "punctuation",
+    "AZURE_SPEECH_REGION": "",
+    "AZURE_SPEECH_BASE_URL": "",
+    "AZURE_SPEECH_OUTPUT_FORMAT": "audio-24khz-160kbitrate-mono-mp3",
+    "MISTRAL_API_KEY": "",
+    "MISTRAL_API_BASE_URL": "https://api.mistral.ai/v1"
+  },
+  "stt": {
+    "OPENAI_API_BASE_URL": "https://api.openai.com/v1",
+    "OPENAI_API_KEY": "",
+    "OPENAI_API_REQUEST_FORMAT": "multipart",
+    "ENGINE": "",
+    "MODEL": "",
+    "SUPPORTED_CONTENT_TYPES": [],
+    "ALLOWED_EXTENSIONS": [
+      "mp3",
+      "wav",
+      "m4a",
+      "webm",
+      "ogg",
+      "flac",
+      "mp4",
+      "mpga",
+      "mpeg"
+    ],
+    "WHISPER_MODEL": "base",
+    "DEEPGRAM_API_KEY": "",
+    "AZURE_API_KEY": "",
+    "AZURE_REGION": "",
+    "AZURE_LOCALES": "",
+    "AZURE_BASE_URL": "",
+    "AZURE_MAX_SPEAKERS": "",
+    "MISTRAL_API_KEY": "",
+    "MISTRAL_API_BASE_URL": "https://api.mistral.ai/v1",
+    "MISTRAL_USE_CHAT_COMPLETIONS": false
+  }
+}
