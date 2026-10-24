@@ -55,6 +55,24 @@ for tool_id, name in TOOLS.items():
         r = api("POST", "/api/v1/tools/create", tool)
     print("инструмент", tool_id, "->", "OK" if isinstance(r, dict) and not r.get("error") else r)
 
+# навыки (Skills) из D:\gen\prompts\skills: модель видит только их названия и описания и читает инструкцию
+# целиком через view_skill, когда нужно (например, правила картинок — перед первой генерацией)
+import glob
+import pathlib
+import re
+
+for path in sorted(glob.glob(r"D:\gen\prompts\skills\*.md")):
+    text = open(path, encoding="utf-8").read()
+    front = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    meta = dict(line.split(":", 1) for line in front.group(1).splitlines() if ":" in line) if front else {}
+    skill_id = pathlib.Path(path).stem
+    skill = {"id": skill_id, "name": meta.get("name", skill_id).strip(), "description": meta.get("description", "").strip(),
+             "content": text[front.end():].strip() if front else text}
+    r = api("POST", f"/api/v1/skills/id/{skill_id}/update", skill)
+    if isinstance(r, dict) and r.get("error"):
+        r = api("POST", "/api/v1/skills/create", skill)
+    print("навык", skill_id, "->", "OK" if isinstance(r, dict) and not r.get("error") else r)
+
 # старый инструмент Z-Image (модель удалена 2026-10-24)
 api("DELETE", "/api/v1/tools/id/zimage_studio/delete")
 

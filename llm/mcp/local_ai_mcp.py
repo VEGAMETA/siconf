@@ -173,23 +173,31 @@ async def _render(wf, seed, label):
 
 
 @mcp.tool()
-async def generate_image(prompt: str, size: str = "1024x1024", quality: str = "fast", seed: int = 0) -> list:
+async def generate_image(prompt: str, size: str = "1024x1024", quality: str = "fast", seed: int = 0,
+                         layout: list[dict] | None = None) -> list:
     """Generate an image with FLUX 3 Image Klein on the local GPU; saves a PNG and returns its path and a preview.
 
     The model needs a full scene caption, not a short request: one English prose paragraph of 100-350 words. Start with
     medium and style ("Full-color outdoor photograph, ...", "Studio photograph, ...", "Flat vector illustration, ..."),
     then scene, lighting and camera, then every subject with concrete colors, materials, state and frame-relative position
     (on the left, in the foreground). State absences as what is present ("a bare white wall"); put text that must appear
-    in double quotes with its font, color and placement; describe unusual objects part by part.
+    in double quotes with its font, color and placement; describe unusual objects part by part. Compose first: one focal
+    subject, 3-5 elements, reserved empty space for any text; keep rendered text short (small text gets misspelled).
 
     Args:
-        prompt: The full English caption described above.
+        prompt: The full English caption described above; with layout, cite each element by id at first mention ("a woman <woman_1>").
         size: WIDTHxHEIGHT, about 1 megapixel: "1024x1024", "832x1216" (portrait), "1216x832" (landscape), "1344x768" (wide).
         quality: "fast" (distilled, about 15-30 s) or "best" (base model, 50 steps, several times slower).
         seed: 0 for random; reuse a seed for a small variation of the same image.
+        layout: Optional composition boxes, 2-6 items {"id": "woman_1", "bbox": [top, left, bottom, right], "desc": "..."} on a
+            0-1000 grid (0,0 = top-left); one per main subject and per text block (ids like "Ru_Text_1", desc quoting the words).
     """
     seed = seed or random.randint(1, 2**50)
     w, h = _size(size)
+    rows = [{"id": str(x["id"]), "bbox": [max(0, min(1000, int(v))) for v in x["bbox"]], "desc": str(x.get("desc", ""))}
+            for x in layout or [] if isinstance(x, dict) and x.get("id") and isinstance(x.get("bbox"), list) and len(x["bbox"]) == 4]
+    if rows:  # таблица рамок в формате улучшателя BFL
+        prompt = f"{prompt.strip()} {json.dumps(rows, ensure_ascii=False)}"
     wf = _workflow(T2I_WORKFLOW, prompt, quality, seed)
     wf["7"]["inputs"].update(width=w, height=h, batch_size=1)
     wf["4"]["inputs"].update(width=w, height=h)

@@ -35,7 +35,8 @@ CHECKPOINT = (
 )
 # Круг: одна и та же строка размышлений повторилась LOOP_REPEATS раз среди последних LOOP_WINDOW строк
 # (как «Is it "Втулка"? Is it "Втулка"?») — не ждать паузы на 6000, а сразу остановить и подсказать выход
-LOOP_WINDOW, LOOP_REPEATS, MAX_LOOP_NOTES = 40, 4, 2
+LOOP_WINDOW, LOOP_REPEATS, MAX_LOOP_NOTES = 40, 5, 2
+LOOP_RECENT, LOOP_UNIQUE = 20, 0.5   # из последних 20 строк уникальных не больше половины
 # Петля — это вырождение выборки (модель застряла на одном слове), одна пауза её не снимает. После первой
 # пойманной петли до конца ответа включается DRY. Разделитель — символ, которого в тексте не бывает: со
 # стандартными (\n : " *) DRY не ловит «Is it **"Втулка"**?», а пустой список сервер не принимает.
@@ -114,7 +115,9 @@ class Batches:
         self.anti_repeat = False    # после пойманной петли — штраф за дословные повторы до конца ответа
 
     def looping(self, reasoning):
-        """Добавить кусок размышлений; True, если какая-то строка повторилась LOOP_REPEATS раз в окне."""
+        """Добавить кусок размышлений; True, если модель застряла: строка повторилась LOOP_REPEATS раз в окне
+        И последние LOOP_RECENT строк в основном повторы (не больше LOOP_UNIQUE уникальных). Второе условие отсекает
+        обычное планирование, где одна строка (например, название) встречается несколько раз среди нового текста."""
         self.partial_line += reasoning
         *done, self.partial_line = self.partial_line.split("\n")
         for line in done:
@@ -122,7 +125,10 @@ class Batches:
             if len(norm) < 8:
                 continue
             self.lines.append(norm)
-            if self.lines.count(norm) >= LOOP_REPEATS:
+            recent = list(self.lines)[-LOOP_RECENT:]
+            if (self.lines.count(norm) >= LOOP_REPEATS and len(recent) == LOOP_RECENT
+                    and len(set(recent)) <= LOOP_RECENT * LOOP_UNIQUE):
+                log.info("loop line: %r (%d of last %d lines unique)", norm[:80], len(set(recent)), LOOP_RECENT)
                 return True
         return False
 
