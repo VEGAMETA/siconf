@@ -24,7 +24,9 @@ SYS_THINK = open(r"D:\gen\prompts\system_prompt_en.txt", encoding="utf-8").read(
 SYS_PLAIN = SYS_THINK.replace("<|think|>", "").strip()
 # основной Gemma — ещё и порядок размышлений: план, разбор по пунктам, самопроверка
 SYS_DEEP = SYS_THINK + "\n\n" + open(r"D:\gen\prompts\thinking_plan_en.txt", encoding="utf-8").read().strip()
-CAPS = {"web_search": True, "builtin_tools": True, "citations": True, "file_upload": True, "usage": True}
+# image_generation выключен: это встроенный генератор Open WebUI (кнопка «Изображение»); картинки делает свой инструмент
+# flux_studio (create_image / edit_image), два генератора у модели только путают
+CAPS = {"web_search": True, "builtin_tools": True, "citations": True, "file_upload": True, "usage": True, "image_generation": False}
 # Gemma 4 пишет вызовы инструментов в своём формате, который llama.cpp не разбирает, —
 # поэтому поиск для неё делает сам Open WebUI (режим default)
 GEMMA = {"temperature": 1.0, "top_p": 0.95, "top_k": 64, "function_calling": "default"}
