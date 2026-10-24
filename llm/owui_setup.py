@@ -75,6 +75,24 @@ for path in sorted(glob.glob(r"D:\gen\prompts\skills\*.md")):
         r = api("POST", "/api/v1/skills/create", skill)
     print("навык", skill_id, "->", "OK" if isinstance(r, dict) and not r.get("error") else r)
 
+# функции-фильтры из D:\llm\functions (id = имя файла): image_skill_auto включает навык image-generation в тех
+# сообщениях, где просят картинку. Фильтр должен быть активен и привязан к модели (meta.filterIds)
+FILTERS = []
+for path in sorted(glob.glob(r"D:\llm\functions\*.py")):
+    content = open(path, encoding="utf-8").read()
+    fid = pathlib.Path(path).stem
+    title = next((l.split(":", 1)[1].strip() for l in content.splitlines() if l.startswith("title:")), fid)
+    desc = next((l.split(":", 1)[1].strip() for l in content.splitlines() if l.startswith("description:")), "")
+    fn = {"id": fid, "name": title, "content": content, "meta": {"description": desc, "manifest": {}}}
+    r = api("POST", f"/api/v1/functions/id/{fid}/update", fn)
+    if isinstance(r, dict) and r.get("error"):
+        r = api("POST", "/api/v1/functions/create", fn)
+    state = api("GET", f"/api/v1/functions/id/{fid}") or {}
+    if isinstance(state, dict) and not state.get("is_active"):
+        state = api("POST", f"/api/v1/functions/id/{fid}/toggle")
+    FILTERS.append(fid)
+    print("фильтр", fid, "->", "активен" if isinstance(state, dict) and state.get("is_active") else state)
+
 # старый инструмент Z-Image (модель удалена 2026-10-24)
 api("DELETE", "/api/v1/tools/id/zimage_studio/delete")
 
@@ -84,6 +102,7 @@ CHAT_TOOLS = {"gemma-4-26b-a4b"}
 for m in models:
     if m["id"] in CHAT_TOOLS:
         m["meta"]["toolIds"] = list(TOOLS)
+        m["meta"]["filterIds"] = list(FILTERS)
         m["meta"].setdefault("defaultFeatureIds", [])
         if "memory" not in m["meta"]["defaultFeatureIds"]:
             m["meta"]["defaultFeatureIds"].append("memory")  # кнопка «Память» включена в новых чатах
