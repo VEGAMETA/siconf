@@ -10,9 +10,11 @@ Open WebUI -> http://127.0.0.1:8081/v1 -> этот посредник -> http://
 Ответ и вызовы инструментов разбирает сам llama.cpp. Всё остальное (модели, служебные запросы
 без размышлений) проходит насквозь.
 """
+import collections
 import json
 import logging
 import os
+import re
 import time
 
 import aiohttp
@@ -21,6 +23,7 @@ from aiohttp import web
 UPSTREAM = "http://127.0.0.1:8080"
 LISTEN_HOST, LISTEN_PORT = "127.0.0.1", int(os.environ.get("THINK_PORT", 8081))
 # по 431 ответу Gemma (2026-10-24): длиннее 6000 токенов — 7%, длиннее 12000 — 1%, длиннее 16000 — только круги
+FINAL_ANSWER_CAP = 4000
 FIRST, STEP, HARD = (int(os.environ.get(k, d)) for k, d in (("THINK_FIRST", 6000), ("THINK_STEP", 4000), ("THINK_HARD", 18000)))
 
 # Формулировки мягкие: пауза «оглянуться», а не «торопись» (без счётчика токенов) — давление
@@ -30,9 +33,25 @@ CHECKPOINT = (
     "is still open, name it in one sentence and how you will settle it: with a tool such as code or web search, or by "
     "a different method than the ones you have tried. Then continue calmly; there is no need to rush.]\n"
 )
+# Круг: одна и та же строка размышлений повторилась LOOP_REPEATS раз среди последних LOOP_WINDOW строк
+# (как «Is it "Втулка"? Is it "Втулка"?») — не ждать паузы на 6000, а сразу остановить и подсказать выход
+LOOP_WINDOW, LOOP_REPEATS, MAX_LOOP_NOTES = 40, 4, 2
+# Петля — это вырождение выборки (модель застряла на одном слове), одна пауза её не снимает. После первой
+# пойманной петли до конца ответа включается DRY. Разделитель — символ, которого в тексте не бывает: со
+# стандартными (\n : " *) DRY не ловит «Is it **"Втулка"**?», а пустой список сервер не принимает.
+ANTI_REPEAT = {"dry_multiplier": 0.8, "dry_base": 1.75, "dry_allowed_length": 3, "dry_penalty_last_n": 4096,
+               "dry_sequence_breakers": ["␞"]}
+LOOP = (
+    "\n\n[Pause: you are going in circles, the same lines and candidates keep coming back. Do not list them again. {way} "
+    "Keep the final answer in the language your instructions require.]\n"
+)
+LOOP_SEARCH = ("The answer depends on something you cannot recall, so call the {tool} tool now with a short query and "
+               "build the answer on its results.")
+LOOP_NO_SEARCH = ("Answer with what you have: give your best candidates once and ask the user one short clarifying "
+                  "question.")
 FINAL = (
     "\n\n[Thinking time is up. Write the final answer now with what you have: give your best answer, and say plainly "
-    "which part is uncertain.]\n"
+    "which part is uncertain. Keep the final answer in the language your instructions require.]\n"
 )
 
 log = logging.getLogger("think_proxy")
@@ -77,6 +96,7 @@ class Batches:
     def __init__(self, body):
         self.body = body
         self.thinking = ""          # размышления целиком, включая контрольные точки
+        self.content = ""           # уже выданная часть ответа (для продолжения, если партия его обрезала)
         self.thinking_tokens = 0
         self.answer_started = False
         self.completion_tokens = 0
@@ -84,15 +104,42 @@ class Batches:
         self.chunk_id = None
         self.created = int(time.time())
         self.checkpoints = 0
+        self.loop_notes = 0
+        self.lines = collections.deque(maxlen=LOOP_WINDOW)
+        self.partial_line = ""
+        names = [(x.get("function") or {}).get("name", "") for x in body.get("tools") or []]
+        # поиск в интернете, а не по базам знаний, беседам или памяти
+        self.search_tool = next((n for n in ("search_web", "web_search") if n in names),
+                                next((n for n in names if "web" in n and "search" in n), None))
+        self.anti_repeat = False    # после пойманной петли — штраф за дословные повторы до конца ответа
+
+    def looping(self, reasoning):
+        """Добавить кусок размышлений; True, если какая-то строка повторилась LOOP_REPEATS раз в окне."""
+        self.partial_line += reasoning
+        *done, self.partial_line = self.partial_line.split("\n")
+        for line in done:
+            norm = re.sub(r"^[\s*\-\d.)#]+", "", line).strip(" *_").lower()
+            if len(norm) < 8:
+                continue
+            self.lines.append(norm)
+            if self.lines.count(norm) >= LOOP_REPEATS:
+                return True
+        return False
 
     def request_body(self, max_tokens, forced=False):
-        body = dict(self.body, stream=True, max_tokens=max_tokens, stream_options={"include_usage": True})
+        body = dict(self.body, stream=True, stream_options={"include_usage": True})
         body.pop("max_completion_tokens", None)
-        if self.thinking:
-            # последнее сообщение ассистента с незакрытыми размышлениями = продолжить их;
-            # с непустым текстом ответа шаблон закрывает размышления и модель сразу отвечает
+        body.pop("max_tokens", None)
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+        if self.anti_repeat:
+            body.update(ANTI_REPEAT)
+        if self.thinking or self.content:
+            # последнее сообщение ассистента = продолжение: с пустым content шаблон оставляет размышления
+            # незакрытыми (модель думает дальше); с непустым — закрывает их и модель продолжает ответ
+            content = self.content or (" " if forced else "")
             body["messages"] = list(self.body["messages"]) + [
-                {"role": "assistant", "content": " " if forced else "", "reasoning_content": self.thinking}]
+                {"role": "assistant", "content": content, "reasoning_content": self.thinking}]
         return body
 
     def synthetic(self, reasoning):
@@ -105,14 +152,16 @@ class Batches:
         user_cap = self.body.get("max_tokens") or self.body.get("max_completion_tokens")
         next_stop, forced = FIRST, False
         while True:
-            limit = None if self.answer_started or forced else next_stop - self.thinking_tokens
-            if user_cap:
-                limit = min(limit or user_cap, user_cap - self.completion_tokens)
-            body = self.request_body(limit if limit is not None else -1, forced)
-            if limit is None:
-                body.pop("max_tokens")
-            finish, batch_reasoning, batch_tokens = None, "", 0
-            async with session.post(UPSTREAM + "/v1/chat/completions", json=body,
+            # предел партии — только пока модель думает; ответ дописывается без нашего предела
+            ours = None if self.answer_started or forced else next_stop - self.thinking_tokens
+            if forced and not self.answer_started:
+                ours = FINAL_ANSWER_CAP  # после «время вышло» модель может продолжить рассуждать уже в ответе
+            left = user_cap - self.completion_tokens if user_cap else None
+            limit = min(x for x in (ours, left) if x is not None) if (ours or left) else None
+            # после «время вышло» обрезка — настоящий конец ответа: finish и usage идут клиенту как есть
+            cut_by_us = ours is not None and (left is None or ours < left) and not forced
+            finish, batch_reasoning, batch_tokens, looped = None, "", 0, False
+            async with session.post(UPSTREAM + "/v1/chat/completions", json=self.request_body(limit, forced),
                                     timeout=aiohttp.ClientTimeout(total=None)) as up:
                 if up.status != 200:
                     raise web.HTTPBadGateway(text=await up.text(), content_type="application/json")
@@ -130,21 +179,48 @@ class Batches:
                         delta = choice.get("delta") or {}
                         if delta.get("reasoning_content"):
                             batch_reasoning += delta["reasoning_content"]
+                            if not self.answer_started and not forced and self.looping(delta["reasoning_content"]):
+                                looped = True
+                        if delta.get("content"):
+                            self.content += delta["content"]
                         if delta.get("content") or delta.get("tool_calls"):
                             self.answer_started = True
                         finish = choice.get("finish_reason") or finish
-                        if choice.get("finish_reason") == "length" and not self.answer_started and not forced:
+                        if choice.get("finish_reason") == "length" and cut_by_us:
                             choice["finish_reason"] = None  # конец партии, а не ответа: клиенту не показываем
-                    # usage промежуточных партий клиенту не нужен — придёт итоговый
-                    if usage and finish == "length" and not self.answer_started and not forced:
+                    # usage обрезанной нами партии клиенту не нужен — придёт итоговый
+                    if usage and finish == "length" and cut_by_us:
                         continue
                     await emit(chunk)
+                    if looped:
+                        break  # закрыть поток: llama.cpp прекращает генерацию, когда клиент отключается
+            if looped and not batch_tokens:
+                batch_tokens = len(batch_reasoning) // 3  # usage не пришёл — оценка по длине текста
             self.completion_tokens += batch_tokens
             self.thinking += batch_reasoning
-            if finish != "length" or self.answer_started or forced:
+            log.info("batch: finish=%s tokens=%d reasoning=%d chars answer=%d chars forced=%s",
+                     finish, batch_tokens, len(batch_reasoning), len(self.content), forced)
+            if looped:
+                self.loop_notes += 1
+                self.anti_repeat = True
+                self.thinking_tokens = self.completion_tokens
+                self.lines.clear()
+                if self.loop_notes > MAX_LOOP_NOTES or self.thinking_tokens >= HARD:
+                    note, forced = FINAL.format(used=self.thinking_tokens), True
+                else:
+                    way = LOOP_SEARCH.format(tool=self.search_tool) if self.search_tool else LOOP_NO_SEARCH
+                    note, next_stop = LOOP.format(way=way), max(next_stop, self.thinking_tokens + STEP)
+                log.info("loop detected at ~%d thinking tokens (note %d)%s", self.thinking_tokens, self.loop_notes,
+                         " -> final" if forced else "")
+                self.thinking += note
+                await emit(self.synthetic(note))
+                continue
+            if finish != "length" or not cut_by_us:
                 return finish
-            if user_cap and self.completion_tokens >= user_cap:
-                return finish
+            if self.answer_started and not forced:
+                # модель уже закончила думать и отвечала, а партия обрезала ответ: дописать его без предела
+                log.info("answer cut at batch boundary, continuing it")
+                continue
             # партия кончилась посреди размышлений: контрольная точка или конец бюджета
             self.thinking_tokens = self.completion_tokens
             if self.thinking_tokens >= HARD:
