@@ -78,19 +78,54 @@ FLUX 3 only works well with a full scene caption, never a short request.
 - Sizes: book or podcast cover "832x1216" (square for podcasts), YouTube thumbnail or banner "1344x768".
 - For an important image (a cover), offer two or three variants with different seeds; each takes only about ten seconds once the models are loaded.
 
-## 8. Size and quality
+## 8. Style catalog
+
+Use one dominant style per image. Open the caption (or the style line of a brief) with the style block, then adapt the details to the scene. Describe styles by attributes, never by an artist's or studio's name. When the user names an artist or a famous work, translate it into attributes ("in the manner of Van Gogh" becomes "thick impasto brushstrokes, swirling directional strokes, saturated ultramarine and chrome yellow").
+
+**Photography**
+- Cinematic still: "Cinematic film still, widescreen-like framing, one motivated key light with soft falloff into shadow, subtle teal-and-amber color grading, shallow depth of field, natural skin texture."
+- Analog film: "Analog film photograph with fine visible grain, slightly lifted blacks, warm muted colors, gentle halation around highlights, imperfect candid framing."
+- Editorial portrait: "Magazine editorial portrait, clean soft key light from one side with a fill, polished but natural skin, deliberate pose, simple seamless backdrop in one solid color."
+- Documentary: "Documentary photograph in available light, unposed moment, ordinary clutter of the real place, honest colors, slight motion in the background."
+- Studio product: "Studio product photograph on a seamless background, soft large-source light, controlled reflections, crisp edges, the object filling the center."
+
+**Painting**
+- Oil: "Oil painting on canvas, visible thick brushstrokes and palette-knife texture, rich layered color, warm underpainting showing through."
+- Watercolor: "Watercolor on cold-press paper, transparent washes with soft blooms and hard dried edges, white of the paper left for highlights, visible paper grain."
+- Gouache: "Gouache painting with flat opaque color areas, matte finish, soft visible brush marks, limited palette of 4-5 colors."
+- Pastel: "Soft pastel drawing on toned paper, powdery strokes, blended edges, the paper color showing between strokes."
+
+**Graphics and print**
+- Ink and pen: "Black ink pen drawing, confident varied line weight, cross-hatching for shadows, white paper, no color."
+- Engraving: "Vintage copperplate engraving, fine parallel hatching and stippling, monochrome sepia ink on cream paper."
+- Soviet poster: "Soviet constructivist poster, bold flat red, black and cream shapes, strong diagonals, heroic low-angle figures, blocky sans-serif lettering."
+- Book illustration: "Classic children's-book illustration, soft colored-pencil and watercolor textures, gentle rounded shapes, warm storybook light."
+
+**Digital**
+- Flat vector: "Flat vector illustration, clean geometric shapes, no gradients or one subtle gradient, limited palette, crisp edges, generous empty space."
+- Isometric 3D: "Isometric 3D illustration, soft clay-like materials, gentle ambient occlusion shadows, pastel palette, a small diorama on a plain background."
+- Concept art: "Digital concept art painting, atmospheric perspective, dramatic light shafts, large readable shapes, painterly detail in the focal area only."
+- Anime: "Anime illustration, clean line art, cel shading with two tones of shadow, expressive eyes, bright saturated sky colors."
+- Comic: "Comic book art, bold black inks, flat colors with halftone dot shading, dynamic angle, panel-like framing."
+
+**Photorealistic surrealism** (the user's favorite)
+- "Photorealistic surreal photograph: one impossible element shot as if it were completely real, everything else an ordinary, believable place; natural light, true shadows and reflections on the impossible element, sharp detail, quiet calm mood." Combine with the "Surreal on purpose" rule in step 5.
+
+**Series consistency:** for several images that belong together (illustrations for one book, a set of icons, slides), choose the style block once, reuse it word for word in every image, keep the palette and light the same, and reuse the same character descriptions.
+
+## 9. Size and quality
 
 - Portrait or full-height figure "832x1216", landscape or room "1216x832", wide banner or thumbnail "1344x768", square or single object "1024x1024". Use the size the user asks for if any.
 - quality "best" only when the user asks for maximum quality: it is several times slower.
 
-## 9. Edit instructions (prompt mode of edit_image)
+## 10. Edit instructions (prompt mode of edit_image)
 
 - 50-150 English words.
 - One image: an imperative ("Change the jacket to dark green wool ...") that describes only the change, its knock-on effects (shadows, reflections, what fills a removed area) and ends with a clause saying what stays unchanged ("keep the composition, the woman's face, pose and clothing exactly the same").
 - Style-preserving changes say so ("... while keeping the photograph's realistic style and color grading").
 - Several images: "Create a photograph of ..." saying what to take from the first image, the second image, and so on.
 
-## 10. After the image
+## 11. After the image
 
 - Say in one line which size and mode you used.
 - If the tool result includes a preview, look at it and check: the focal subject, every requested element, the spelling of every text, the scale and proportions of objects and people, whether every action is physically possible (no writing on a closed book) unless the impossibility was requested, hands and faces. If something is clearly wrong, say so plainly instead of praising the image, and offer the fix.
