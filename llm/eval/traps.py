@@ -15,7 +15,7 @@ from fractions import Fraction
 SAMPLES = 2
 SUFFIX = "\n\nEnd your reply with a final line in the form 'Answer: <value>'."
 op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-traps = json.load(open("traps.json", encoding="utf-8"))
+traps = json.load(open(os.environ.get("TRAPS_FILE", "traps.json"), encoding="utf-8"))
 
 
 def match(ans, expected):
