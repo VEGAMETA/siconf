@@ -30,7 +30,8 @@
         "flux_studio"
       ],
       "filterIds": [
-        "image_skill_auto"
+        "image_skill_auto",
+        "research_skill_auto"
       ]
     },
     "params": {
@@ -38,7 +39,7 @@
       "top_p": 0.95,
       "top_k": 64,
       "function_calling": "default",
-      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 8189 символов>",
+      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 9242 символов>",
       "compact_token_threshold": 200000
     }
   },
@@ -70,7 +71,7 @@
       "top_p": 0.95,
       "top_k": 64,
       "function_calling": "default",
-      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 6163 символов>"
+      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 7216 символов>"
     }
   }
 ]
