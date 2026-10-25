@@ -47,7 +47,10 @@ models = [
 ]
 
 # свои инструменты из D:\llm\tools: id = имя файла, описание — из шапки файла
-TOOLS = {"current_chat_search": "Поиск по текущей беседе", "flux_studio": "FLUX 3: картинки"}
+# web_research — свой search_web (SearXNG с фильтром по времени + текст лучших страниц): функция с тем же именем
+# занимает место встроенного search_web Open WebUI; встроенный fetch_url остаётся
+TOOLS = {"current_chat_search": "Поиск по текущей беседе", "flux_studio": "FLUX 3: картинки",
+         "web_research": "Поиск в интернете с чтением страниц"}
 for tool_id, name in TOOLS.items():
     content = open(rf"D:\llm\tools\{tool_id}.py", encoding="utf-8").read()
     desc = next((l.split(":", 1)[1].strip() for l in content.splitlines() if l.startswith("description:")), "")
