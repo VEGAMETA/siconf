@@ -2,7 +2,7 @@
 title: Расход контекста
 description: Под каждым ответом — строка: сколько контекста занято (из 256K), сколько токенов в ответе, скорость генерации и чтения промпта по данным llama.cpp, сколько взято из кэша. Перед следующим запросом строка вырезается из истории, модель её не видит.
 author: local
-version: 0.2.1
+version: 0.2.2
 """
 
 import re
@@ -29,8 +29,14 @@ class Filter:
     def inlet(self, body: dict) -> dict:
         # строка статистики — для человека; модели она не нужна и сбивала бы кэш llama.cpp
         for m in body.get("messages") or []:
-            if m.get("role") == "assistant" and isinstance(m.get("content"), str):
+            if m.get("role") != "assistant":
+                continue
+            if isinstance(m.get("content"), str):
                 m["content"] = STATS_RE.sub("", m["content"])
+            for item in m.get("output") or []:
+                for part in item.get("content") or [] if isinstance(item.get("content"), list) else []:
+                    if part.get("type") == "output_text" and isinstance(part.get("text"), str):
+                        part["text"] = STATS_RE.sub("", part["text"])
         return body
 
     def outlet(self, body: dict) -> dict:
@@ -59,5 +65,11 @@ class Filter:
             parts.append(f"всего за ответ с инструментами {_k(total_in + (usage.get('output_tokens') or 0))}")
         if percent >= self.valves.warn_percent:
             parts.append("скоро сжатие беседы")
-        last["content"] = STATS_RE.sub("", last["content"]) + "\n\n*" + " · ".join(parts) + "*"
+        line = "\n\n*" + " · ".join(parts) + "*"
+        last["content"] = STATS_RE.sub("", last["content"]) + line
+        # в 0.12 интерфейс рисует ответ из output (структурированные части), а не из content: дописываем и туда
+        texts = [part for item in (last.get("output") or []) if item.get("type") == "message"
+                 for part in (item.get("content") or []) if part.get("type") == "output_text"]
+        if texts:
+            texts[-1]["text"] = STATS_RE.sub("", texts[-1].get("text") or "") + line
         return body
