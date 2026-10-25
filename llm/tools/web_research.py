@@ -142,7 +142,8 @@ class Tools:
         if current_pass == 1:
             lines.append("\n[This was search pass 1. Before answering: list the concrete names in these texts (projects, games, products, tools, versions) that matter for the question, "
                          "and run search_web once more with 2-4 of those names or with the parts of the topic still missing (for example tools and utilities around it), "
-                         "separated by \" ; \". Answer only after that second pass.]")
+                         "separated by \" ; \". Use only names that appear in these texts or in the user's message, not guesses from memory. "
+                         "Answer only after that second pass, and leave out findings that are off the topic as the user meant it.]")
         elif current_pass == 2:
             lines.append("\n[This was search pass 2. Answer now unless something essential is still missing; then one more targeted search is allowed.]")
         else:

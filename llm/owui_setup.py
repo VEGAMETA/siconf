@@ -50,7 +50,10 @@ models = [
 # web_research — свой search_web (SearXNG с фильтром по времени + текст лучших страниц): функция с тем же именем
 # занимает место встроенного search_web Open WebUI; встроенный fetch_url остаётся
 TOOLS = {"current_chat_search": "Поиск по текущей беседе", "flux_studio": "FLUX 3: картинки",
-         "web_research": "Поиск в интернете с чтением страниц"}
+         "web_research": "Поиск в интернете с чтением страниц",
+         # Inline Visualizer 2.2.3 (github.com/Classic298/open-webui-plugins, BSD-3-Clause; файлы inline-visualizer-v2/tool.py и SKILL.md): графики и схемы прямо в чате;
+         # навык visualize — его SKILL.md. Нужна пользовательская настройка «iframe Sandbox Allow Same Origin»
+         "inline_visualizer": "Inline Visualizer"}
 for tool_id, name in TOOLS.items():
     content = open(rf"D:\llm\tools\{tool_id}.py", encoding="utf-8").read()
     desc = next((l.split(":", 1)[1].strip() for l in content.splitlines() if l.startswith("description:")), "")

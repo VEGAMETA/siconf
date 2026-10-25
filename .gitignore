@@ -14,3 +14,6 @@ __pycache__/
 *.onnx
 results/
 logs/
+# сторонний код ставится из первоисточника (см. docs/04-prompts.md), не хранится здесь
+llm/tools/inline_visualizer.py
+prompts/skills/visualize.md

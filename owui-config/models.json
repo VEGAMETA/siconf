@@ -28,11 +28,14 @@
       "toolIds": [
         "current_chat_search",
         "flux_studio",
-        "web_research"
+        "web_research",
+        "inline_visualizer"
       ],
       "filterIds": [
+        "context_usage",
         "image_skill_auto",
-        "research_skill_auto"
+        "research_skill_auto",
+        "task_skills_auto"
       ]
     },
     "params": {
@@ -40,7 +43,7 @@
       "top_p": 0.95,
       "top_k": 64,
       "function_calling": "default",
-      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 9596 символов>",
+      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 9947 символов>",
       "compact_token_threshold": 200000
     }
   },
@@ -72,7 +75,7 @@
       "top_p": 0.95,
       "top_k": 64,
       "function_calling": "default",
-      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 7340 символов>"
+      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 7691 символов>"
     }
   }
 ]
