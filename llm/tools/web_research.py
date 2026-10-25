@@ -2,7 +2,7 @@
 title: Поиск в интернете с чтением страниц
 description: Заменяет встроенный search_web: ищет через SearXNG с фильтром по времени и сразу читает лучшие страницы, чтобы модели хватало одного вызова (небольшие модели плохо делают цепочки «поиск → открыть страницу → уточнить»).
 author: local
-version: 0.1.0
+version: 0.2.0
 """
 
 import asyncio
@@ -15,8 +15,12 @@ import aiohttp
 from open_webui.retrieval.utils import get_content_from_url
 
 SEARXNG = "http://127.0.0.1:8888/search"
-RESULTS = 8            # сколько результатов показать модели
-PAGE_CHARS = 4000      # символов текста с каждой прочитанной страницы
+MAX_QUERIES = 4        # запросов в одном вызове (через « ; »)
+PER_QUERY = 6          # результатов с каждого запроса
+MAX_RESULTS = 16       # всего результатов в ответе модели
+MAX_FETCH = 8          # страниц пробуем открыть
+MAX_PAGES = 4          # страниц отдаём текстом
+PAGE_CHARS = 3500      # символов текста с каждой страницы
 MIN_PAGE_CHARS = 300   # меньше — пустая страница или заглушка «вы робот?»
 FETCH_TIMEOUT = 25     # секунд на одну страницу
 MIN_FRESH = 3          # если за период нашлось меньше — повтор без фильтра по времени
@@ -53,8 +57,8 @@ class Tools:
     async def search_web(self, query: str, period: str = "", __request__=None, __metadata__=None, __messages__=None) -> str:
         """
         Search the web and read the best pages in one call. Use it for news, releases, versions, prices and any fact that may have changed.
-        Start with a short, broad query; then call again with names found in the results to narrow down.
-        :param query: Search query, short and concrete (names, page type such as "release notes" or "weekly roundup"). The period filter handles dates, so the year is optional.
+        For a broad topic, pass several short queries at once, separated by " ; ", one per part of the topic (for example new program releases ; game ports ; tools), so the search covers it from all sides.
+        :param query: One short, concrete query, or 2-4 queries separated by " ; ". Names and page types ("release notes", "weekly roundup") help; the period filter handles dates, so the year is optional.
         :param period: Only pages from this recent period: "day", "week", "month" or "year". Empty for any time. Use "week" for "this week", "month" for "recently" or "this month".
         :return: Numbered results with title, link, date and snippet, followed by the text of the top pages.
         """
@@ -73,40 +77,51 @@ class Tools:
             hint = re.search(r'\[Context:[^\]]*period="(\w+)"', content or "")
             if hint and hint.group(1) in PERIOD_DAYS:
                 period = hint.group(1)
-        try:
-            results = await _searxng(query, period)
-            note = ""
+        queries = [q.strip() for q in re.split(r"\s*;\s*|\n", query or "") if q.strip()][:MAX_QUERIES] or [query]
+
+        async def one(q):
+            results = await _searxng(q, period)
             if period and len(results) < MIN_FRESH:
-                older = await _searxng(query, "")
                 seen = {r.get("url") for r in results}
-                results += [r for r in older if r.get("url") not in seen]
-                note = f"Only {len(results) - len([r for r in older if r.get('url') not in seen])} results within the period; older results added below, check their dates."
+                results += [dict(r, older=True) for r in await _searxng(q, "") if r.get("url") not in seen]
+            return [r for r in results if r.get("url")][:PER_QUERY]
+
+        try:
+            per_query = await asyncio.gather(*[one(q) for q in queries])
         except Exception as e:
             return f"Search error: {e}. SearXNG at {SEARXNG} may be down."
-        results = [r for r in results if r.get("url")][:RESULTS]
+
+        # по очереди из каждого запроса, без повторов: каждая часть темы попадает в начало списка
+        results, seen = [], set()
+        for row in range(PER_QUERY):
+            for res in per_query:
+                if row < len(res) and res[row]["url"] not in seen:
+                    seen.add(res[row]["url"])
+                    results.append(res[row])
+        results = results[:MAX_RESULTS]
         if not results:
             return f'No results for "{query}". Try shorter or different words, or another language.'
 
-        # читаем страницы по порядку, пропуская видео и пустые; до трёх штук
-        to_read = [i for i, r in enumerate(results) if not any(d in r["url"] for d in SKIP_READ)]
-        texts = await asyncio.gather(*[_read(__request__, results[i]["url"]) for i in to_read[:5]])
-        pages = [(i, t) for i, t in zip(to_read[:5], texts) if len(t) >= MIN_PAGE_CHARS][:3]
+        # читаем страницы в том же порядке, пропуская видео и пустые
+        to_read = [i for i, r in enumerate(results) if not any(d in r["url"] for d in SKIP_READ)][:MAX_FETCH]
+        texts = await asyncio.gather(*[_read(__request__, results[i]["url"]) for i in to_read])
+        pages = [(i, t) for i, t in zip(to_read, texts) if len(t) >= MIN_PAGE_CHARS][:MAX_PAGES]
 
         today = date.today()
-        head = f'Search: "{query}" | today: {today.isoformat()}'
+        head = "Search: " + " ; ".join(f'"{q}"' for q in queries) + f" | today: {today.isoformat()}"
         if period:
             head += f" | period: {period} ({(today - timedelta(days=PERIOD_DAYS[period])).isoformat()} to {today.isoformat()})"
-        lines = [head]
-        if note:
-            lines.append(note)
-        lines.append("")
+        lines = [head, ""]
         page_text = dict(pages)
         for n, r in enumerate(results, 1):
             published = (r.get("publishedDate") or "")[:10]
             if not published and (n - 1) in page_text:
                 found = DATE_RE.search(page_text[n - 1][:3000])
                 published = f"{found.group(0)} (first date on the page)" if found else ""
-            lines.append(f"[{n}] {r.get('title', '').strip()} — {r['url']}" + (f" | date: {published}" if published else " | date: unknown"))
+            tail = f" | date: {published}" if published else " | date: unknown"
+            if r.get("older"):
+                tail += " | outside the period filter"
+            lines.append(f"[{n}] {r.get('title', '').strip()} — {r['url']}{tail}")
             snippet = re.sub(r"\s+", " ", r.get("content") or "").strip()
             if snippet:
                 lines.append(f"    {snippet[:300]}")
