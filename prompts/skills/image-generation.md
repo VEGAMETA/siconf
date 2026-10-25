@@ -1,132 +1,64 @@
 ---
 name: Image generation (FLUX 3)
-description: How to plan, write and check images made with create_image and edit_image (FLUX 3 Image Klein). Read it before the first image call in a conversation.
+description: Required rules for create_image and edit_image (FLUX 3 Image Klein): when to draw, brief or prompt mode, how to write the caption (realism, scale, actions, people, text), styles, sizes, edits and the check after the image. Read it before the first image call in a conversation.
 ---
 
 # Image generation with FLUX 3
 
-Follow these steps for every create_image or edit_image call.
+## Required steps (every image)
 
-## 1. Decide what to make
+1. **Draw, do not describe.** "Нарисуй / сгенерируй / придумай / сделай / оформи" + a visual thing (cover, poster, logo, banner, avatar, illustration, wallpaper, sticker, icon) = call create_image in this answer. Text only if the user asks for ideas or a prompt. Missing details: take them from the conversation and attached files; ask one short question only if nothing says what the image is for.
+2. **Change, do not redraw.** "Исправь, убери, замени, сделай светлее" about an image in the chat = edit_image on that image. A new create_image only when the whole composition is wrong.
+3. **Pick the mode.** brief (the BFL writer composes the caption; first run +1-4 min): covers, posters, banners, ads, scenes with a story. prompt (you write the full caption): simple objects, animals, landscapes, icons, or a detailed user description to follow exactly.
+4. **Compose in your thinking:** purpose and viewer, one focal subject and its place in the frame, at most 3-5 elements, where the text goes (empty area, never over a face), one key light and its direction, 2-4 main colors, the place and culture of the story (a story in Russia shows Russian streets, interiors and Cyrillic signs).
+5. **Write it** by the rules below, call the tool with the right size.
+6. **Check the preview** (rules at the end) and say plainly what is wrong.
 
-- A request to draw, generate or show a picture, or to come up with a visual thing (cover, poster, logo, icon, avatar, banner, wallpaper, sticker, illustration, postcard, thumbnail, character or scene look), means: generate the image now. Add one or two lines about the idea. If you thought of several concepts, generate the strongest one; the user can ask for the others.
-- Answer with text only when the user clearly asks for ideas, a description or a prompt.
-- Take missing details (title, theme, mood, story, setting) from the conversation and attached files. Ask one short question only when nothing says what the image is for.
-- To change an image already in the conversation (attached or generated), use edit_image, not a new image: "fix this", "make it blue", "remove the car", "fix the spelling", "turn my sketch into a photo". To combine several images, set images to their number.
+## Caption rules (prompt mode; the brief follows the same ideas in 60-150 words)
 
-## 2. Choose the mode: brief or prompt
+- One English prose paragraph, 100-350 words, no tags or lists. Most important first: style and medium, then scene, light and camera, then each subject with colors, materials and state.
+- **Realism by default.** Without a stated style, write an actual photograph: start with "Full-color indoor photograph, ..." / "outdoor photograph" / "studio photograph" / "close-up photograph"; add a few ordinary imperfect details of the real place; framing words help ("medium close-up, 85mm portrait, shallow depth of field"), camera brands do not.
+- **Surreal only on request.** Then name exactly which rule breaks and how ("a whale floating above a wheat field, its shadow on the wheat"), describe it part by part with real materials, keep light, shadows and perspective real. One or two impossible ideas per image.
+- **Real scale.** For every important object give its size against something near it: "a thin wedding band no bigger than a fingertip", "a cup that fits in her hand", "a door just taller than the woman". People, furniture, buildings and cars in true proportion.
+- **Possible actions, spelled out.** "She writes with a pen on the open right-hand page, the pen tip touching the paper", "holds the mug by its handle". Unclear action: choose a calm pose instead.
+- **People:** age range, build, hair, clothes, expression for each person in focus; one to three people; hands with a simple task or out of frame. Same character in several images: repeat the same description word for word and reuse the seed.
+- **Colors:** name 2-4; exact brand colors as hex with a name: "#8B1E3F (deep burgundy)".
+- **No negative words:** describe what is there ("a deserted street", "a clean unmarked wall", "natural bare skin").
+- **Moods as visible facts;** styles by attributes, never by artist, artwork, real person or brand logo names.
+- **Text in the image:** every word in double quotes with font style, weight, color, size and place, in the original language (Cyrillic works). Only the title and at most one short line, big and high-contrast. For production (a cover for sale, a logo) say that the final lettering is best set in a design tool.
+- **Layout:** for covers and posters pass layout boxes (0-1000 grid) and cite each id in the caption ("a woman in a dark coat <woman_1>").
 
-- **brief** (you act as art director, the official BFL prompt writer writes the FLUX caption): covers, posters, banners, thumbnails, ads, complex scenes with a story. Usually gives the better composition. The first use takes 1-4 minutes longer while the writer loads.
-- **prompt** (you write the full FLUX caption yourself): simple images (an object, an animal, a landscape, a quick sketch idea), or when the user gave a detailed description that must be followed word for word. Faster.
-- For edits, brief also works: a short request like "make the ring a realistic small size, keep everything else"; the writer looks at the image and expands it.
+## Covers, posters, thumbnails
 
-## 3. Compose first (in your thinking)
+- Name the format and genre in the caption. Romance or women's fiction: the heroine's face and emotion as the focus, attractive and composed (not exhausted), warm or bittersweet palette, soft light, title large. Thriller: strong silhouette or detail, high contrast, cool tones, bold sans-serif. Fantasy: hero or key place, rich light, ornamental serif. Sci-fi: blue and silver, clean lines. Non-fiction: one clear symbol.
+- Book or podcast cover 832x1216, YouTube thumbnail or banner 1344x768. For important images offer 2-3 variants with different seeds.
 
-- The purpose and audience: what must a viewer understand in one second?
-- One focal subject and where it sits in the frame. No more than 3-5 elements in total. A cover or poster is not a storyboard: pick one moment or symbol, not every plot point.
-- Where text goes, with empty space reserved for it. Text never covers a face.
-- Foreground, midground, background; one key light and its direction (light has the biggest effect on quality).
-- A palette of 2-4 main colors.
-- Real scale and proportions of every object and person (see step 5).
-- Setting and culture: match the story's place and time. A story set in Russia shows Russian streets, buildings, interiors and Cyrillic signs, not an American suburb.
+## Styles (one per image; open the caption with the line, then adapt)
 
-## 4. Write the brief (brief mode)
+- Cinematic still: "Cinematic film still, one motivated key light, teal-and-amber grading, shallow depth of field, natural skin texture."
+- Analog film: "Analog film photograph, fine grain, lifted blacks, warm muted colors, slight halation, candid framing."
+- Editorial portrait: "Magazine editorial portrait, soft key light from one side, natural polished skin, seamless one-color backdrop."
+- Documentary: "Documentary photograph in available light, unposed moment, real clutter, honest colors."
+- Product: "Studio product photograph, seamless background, large soft light, controlled reflections."
+- Oil: "Oil painting, thick brushstrokes, palette-knife texture, layered color." Watercolor: "Watercolor on cold-press paper, soft blooms, hard dried edges, white paper as highlights." Gouache: "Flat opaque gouache, matte, 4-5 colors."
+- Ink: "Black ink drawing, varied line weight, cross-hatching, white paper." Engraving: "Copperplate engraving, fine hatching, sepia on cream." Soviet poster: "Constructivist poster, flat red, black and cream, strong diagonals, blocky lettering."
+- Flat vector: "Flat vector illustration, geometric shapes, limited palette, generous empty space." Isometric 3D: "Isometric 3D, soft clay materials, pastel palette, small diorama." Concept art: "Digital concept art, atmospheric perspective, light shafts, big readable shapes." Anime: "Anime illustration, clean line art, two-tone cel shading." Comic: "Comic art, bold inks, flat colors, halftone dots."
+- Photorealistic surrealism: "Photorealistic surreal photograph: one impossible element shot as completely real, everything else an ordinary believable place, true light and shadows."
+- A series (book illustrations, icon set, slides): pick the style line once and repeat it word for word, same palette and light.
 
-60-150 words, any language, containing:
-- purpose, genre and audience ("book cover for a contemporary women's drama, readers 30-50");
-- what the image is about in one sentence;
-- the focal subject: who, age range, look, clothing, expression, pose; the one key moment or symbol;
-- 3-5 elements and the composition: where the subject is, where the text goes and that its area stays empty;
-- the exact text in quotes and its hierarchy (book title large, series line small); keep it to the title and at most one short line;
-- palette, light, mood, style (photo or a named illustration style);
-- real sizes of important objects ("a thin wedding band no bigger than a fingertip").
+## Size and quality
 
-## 5. Write the caption (prompt mode)
+- Portrait or full figure 832x1216, landscape or room 1216x832, wide banner 1344x768, square or single object 1024x1024; the user's size wins.
+- quality "best" only when the user asks for maximum quality (several times slower).
 
-FLUX 3 only works well with a full scene caption, never a short request.
+## Edits (edit_image)
 
-- ONE continuous English prose paragraph of 100-350 words. No tags, no lists. Most important things first: the model weighs earlier words more.
-- Order: medium and style, then scene, lighting and camera, then every subject with concrete colors, materials and state.
-- Without a stated style, plan an actual photograph and open with "Full-color outdoor photograph, ...", "Full-color indoor photograph, ...", "Studio photograph, ..." or "Close-up photograph, ...". Give a photo a few ordinary, imperfect details from the scene itself instead of a stock-photo ideal. Framing and lens words help ("medium close-up, 85mm portrait, shallow depth of field"); camera brand names do not.
-- Place things with frame-relative words: on the left, in the foreground, in the background. For covers and posters also pass layout boxes and cite each id in the caption ("a woman in a dark coat <woman_1>").
-- **Realism by default:** scale, proportions, physics and actions follow the real world unless the user asks for something surreal, fantastic, absurd or dreamlike. The rules below on scale and actions are the default, not a ban on the impossible.
-- **Surreal on purpose:** when the user wants the impossible, make it deliberate and precise, not vague. Name exactly which rule is broken and how ("a whale floating in the sky above a wheat field, its shadow falling on the wheat", "a staircase that descends into a teacup", "a woman whose hair turns into flowing water at the ends"), describe the impossible element part by part with real materials and textures, and keep everything else physically consistent and photographically real: light, shadows, reflections and perspective obey the scene. One or two impossible ideas per image read as intent; many at once read as noise. Do not "fix" a requested impossibility in the check step.
-- **Scale and proportions:** the model enlarges whatever seems important (a ring the size of a bracelet, a cup as big as a head, a person towering over a door). For every object that matters, state its real size relative to something familiar near it: "a thin gold wedding band no bigger than a fingertip, tiny next to the loaf", "a coffee cup that fits in her hand", "a two-storey house whose front door is just taller than the woman standing in it". Keep people, furniture, buildings and vehicles in true proportion to each other and to the camera distance.
-- **Actions with objects must be physically possible and spelled out:** the model draws each object well but often connects them wrongly (writing on a closed book, a cup held by its bottom, a key in a wall). Describe the interaction unambiguously: "she writes with a fountain pen on the open right-hand page of a notebook, the pen tip touching the paper", "she holds the mug by its handle". If the action is not essential, prefer a calm pose without it.
-- **People:** age range, build, hair, clothing and expression for everyone in focus. Give hands a simple, natural task (holding a cup, resting on a table, in coat pockets) or keep them out of frame; complex finger poses break. Keep crowds out unless needed; one to three people in focus.
-- **The same character in several images:** reuse the exact same description of face, hair and clothing word for word, and reuse the seed for small variations.
-- **Colors:** name 2-4 main colors; for exact brand colors write the hex code with its name, "#8B1E3F (deep burgundy)".
-- **No negative prompts:** describe what is there instead. "No people" becomes "a deserted street", "no text" becomes "a clean, unmarked wall", "no makeup" becomes "natural bare skin".
-- Turn moods into visible facts. Describe a style by its attributes (palette, brushwork, texture), not by naming an artwork, artist, real person or brand logo.
-- Describe unusual objects part by part ("a fish made of clear glass: streamlined body, dorsal fin, gills, fan-shaped tail").
+- brief mode: a short request ("make the ring a realistic small size, keep everything else").
+- prompt mode: 50-150 English words, an imperative describing only the change and its knock-on effects (shadows, what fills a removed area), ending with what stays the same ("keep the composition, her face, pose and clothes unchanged"); for style-keeping edits say so.
+- Several images: "Create a photograph of ... using the face from the first image and the jacket from the second."
 
-## 6. Text in images
+## After the image
 
-- Put every word that must appear in double quotes with font style, weight, color, size and placement, in the original language. Cyrillic works.
-- Big short text renders well; small and long text gets misspelled. Keep to the title and at most one short line.
-- High contrast between text and background, so the title stays readable at thumbnail size.
-- Generated text is never guaranteed. When exact text matters for production (a cover for sale, a logo), say that the final lettering is best set separately in a design tool.
-
-## 7. Genre conventions for covers, posters, banners, thumbnails
-
-- Say the format and genre explicitly ("book cover", "YouTube thumbnail") and follow the genre unless asked otherwise:
-  - romance or women's fiction: the heroine (face, emotion) as the focal subject, warm or bittersweet palette, soft light, title large;
-  - thriller or crime: a strong silhouette or detail, high contrast, cool tones, bold sans-serif title;
-  - fantasy: the hero or a key creature or place, rich saturated light, ornamental serif title;
-  - sci-fi: blue and silver palette, clean lines;
-  - non-fiction: one clear symbol or a clean typographic layout.
-- Sizes: book or podcast cover "832x1216" (square for podcasts), YouTube thumbnail or banner "1344x768".
-- For an important image (a cover), offer two or three variants with different seeds; each takes only about ten seconds once the models are loaded.
-
-## 8. Style catalog
-
-Use one dominant style per image. Open the caption (or the style line of a brief) with the style block, then adapt the details to the scene. Describe styles by attributes, never by an artist's or studio's name. When the user names an artist or a famous work, translate it into attributes ("in the manner of Van Gogh" becomes "thick impasto brushstrokes, swirling directional strokes, saturated ultramarine and chrome yellow").
-
-**Photography**
-- Cinematic still: "Cinematic film still, widescreen-like framing, one motivated key light with soft falloff into shadow, subtle teal-and-amber color grading, shallow depth of field, natural skin texture."
-- Analog film: "Analog film photograph with fine visible grain, slightly lifted blacks, warm muted colors, gentle halation around highlights, imperfect candid framing."
-- Editorial portrait: "Magazine editorial portrait, clean soft key light from one side with a fill, polished but natural skin, deliberate pose, simple seamless backdrop in one solid color."
-- Documentary: "Documentary photograph in available light, unposed moment, ordinary clutter of the real place, honest colors, slight motion in the background."
-- Studio product: "Studio product photograph on a seamless background, soft large-source light, controlled reflections, crisp edges, the object filling the center."
-
-**Painting**
-- Oil: "Oil painting on canvas, visible thick brushstrokes and palette-knife texture, rich layered color, warm underpainting showing through."
-- Watercolor: "Watercolor on cold-press paper, transparent washes with soft blooms and hard dried edges, white of the paper left for highlights, visible paper grain."
-- Gouache: "Gouache painting with flat opaque color areas, matte finish, soft visible brush marks, limited palette of 4-5 colors."
-- Pastel: "Soft pastel drawing on toned paper, powdery strokes, blended edges, the paper color showing between strokes."
-
-**Graphics and print**
-- Ink and pen: "Black ink pen drawing, confident varied line weight, cross-hatching for shadows, white paper, no color."
-- Engraving: "Vintage copperplate engraving, fine parallel hatching and stippling, monochrome sepia ink on cream paper."
-- Soviet poster: "Soviet constructivist poster, bold flat red, black and cream shapes, strong diagonals, heroic low-angle figures, blocky sans-serif lettering."
-- Book illustration: "Classic children's-book illustration, soft colored-pencil and watercolor textures, gentle rounded shapes, warm storybook light."
-
-**Digital**
-- Flat vector: "Flat vector illustration, clean geometric shapes, no gradients or one subtle gradient, limited palette, crisp edges, generous empty space."
-- Isometric 3D: "Isometric 3D illustration, soft clay-like materials, gentle ambient occlusion shadows, pastel palette, a small diorama on a plain background."
-- Concept art: "Digital concept art painting, atmospheric perspective, dramatic light shafts, large readable shapes, painterly detail in the focal area only."
-- Anime: "Anime illustration, clean line art, cel shading with two tones of shadow, expressive eyes, bright saturated sky colors."
-- Comic: "Comic book art, bold black inks, flat colors with halftone dot shading, dynamic angle, panel-like framing."
-
-**Photorealistic surrealism** (the user's favorite)
-- "Photorealistic surreal photograph: one impossible element shot as if it were completely real, everything else an ordinary, believable place; natural light, true shadows and reflections on the impossible element, sharp detail, quiet calm mood." Combine with the "Surreal on purpose" rule in step 5.
-
-**Series consistency:** for several images that belong together (illustrations for one book, a set of icons, slides), choose the style block once, reuse it word for word in every image, keep the palette and light the same, and reuse the same character descriptions.
-
-## 9. Size and quality
-
-- Portrait or full-height figure "832x1216", landscape or room "1216x832", wide banner or thumbnail "1344x768", square or single object "1024x1024". Use the size the user asks for if any.
-- quality "best" only when the user asks for maximum quality: it is several times slower.
-
-## 10. Edit instructions (prompt mode of edit_image)
-
-- 50-150 English words.
-- One image: an imperative ("Change the jacket to dark green wool ...") that describes only the change, its knock-on effects (shadows, reflections, what fills a removed area) and ends with a clause saying what stays unchanged ("keep the composition, the woman's face, pose and clothing exactly the same").
-- Style-preserving changes say so ("... while keeping the photograph's realistic style and color grading").
-- Several images: "Create a photograph of ..." saying what to take from the first image, the second image, and so on.
-
-## 11. After the image
-
-- Say in one line which size and mode you used.
-- If the tool result includes a preview, look at it and check: the focal subject, every requested element, the spelling of every text, the scale and proportions of objects and people, whether every action is physically possible (no writing on a closed book) unless the impossibility was requested, hands and faces. If something is clearly wrong, say so plainly instead of praising the image, and offer the fix.
-- When the user is unhappy: first name concretely what differs from what they wanted, then fix exactly that, usually with edit_image on the last image; use a new create_image only when the whole composition is wrong. Change one thing at a time. After two similar misses, rethink the composition or the mode instead of piling on adjectives. Tell the user in one line what you changed.
+- One line: which size and mode you used.
+- Check the preview: focal subject, every requested element, text spelling, scale and proportions, physically possible actions (unless the impossible was requested), hands and faces. If something is clearly wrong, say so plainly instead of praising, and offer the fix.
+- User unhappy: name concretely what differs, fix exactly that (usually edit_image), one change at a time; after two similar misses rethink the composition or switch the mode.
