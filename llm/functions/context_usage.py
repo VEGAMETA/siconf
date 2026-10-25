@@ -9,7 +9,8 @@ import re
 
 from pydantic import BaseModel, Field
 
-STATS_RE = re.compile(r"\n*<sub>контекст [^<]*</sub>\s*$")
+# строка статистики — Markdown-курсив (HTML вроде <sub> Open WebUI не отрисовывает); старый формат <sub> тоже вырезаем
+STATS_RE = re.compile(r"\n*(?:<sub>контекст [^<]*</sub>|\*контекст [^*\n]*\*)\s*$")
 
 
 def _k(n):
@@ -58,5 +59,5 @@ class Filter:
             parts.append(f"всего за ответ с инструментами {_k(total_in + (usage.get('output_tokens') or 0))}")
         if percent >= self.valves.warn_percent:
             parts.append("скоро сжатие беседы")
-        last["content"] = STATS_RE.sub("", last["content"]) + "\n\n<sub>" + " · ".join(parts) + "</sub>"
+        last["content"] = STATS_RE.sub("", last["content"]) + "\n\n*" + " · ".join(parts) + "*"
         return body
