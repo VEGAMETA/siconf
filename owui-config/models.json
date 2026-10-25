@@ -35,6 +35,7 @@
         "context_usage",
         "image_skill_auto",
         "research_skill_auto",
+        "skills_inline",
         "task_skills_auto"
       ]
     },
