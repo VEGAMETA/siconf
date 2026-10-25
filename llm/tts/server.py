@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 VOICES_DIR = Path(__file__).parent / "voices"
 VOICES = {p.name.split("-")[1]: p for p in VOICES_DIR.glob("ru_RU-*-medium.onnx")}
-DEFAULT_VOICE = "dmitri"
+DEFAULT_VOICE = "ruslan"
 _loaded: dict[str, PiperVoice] = {}
 
 app = FastAPI(title="piper-openai")
@@ -80,8 +80,12 @@ def speech(req: SpeechRequest):
     if not text:
         return Response(status_code=400, content="empty input")
     buf = io.BytesIO()
-    with wave.open(buf, "wb") as wav:
-        _voice(req.voice).synthesize_wav(text, wav, syn_config=SynthesisConfig(length_scale=1.0 / max(0.25, min(req.speed, 4.0))))
+    try:
+        with wave.open(buf, "wb") as wav:
+            _voice(req.voice).synthesize_wav(text, wav, syn_config=SynthesisConfig(length_scale=1.0 / max(0.25, min(req.speed, 4.0))))
+    except wave.Error:
+        # Piper не выдал ни одного звука (в тексте только знаки или символы, которые он не читает)
+        return Response(status_code=400, content="nothing to speak")
     return Response(content=buf.getvalue(), media_type="audio/wav")
 
 
