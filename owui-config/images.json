@@ -149,49 +149,49 @@
   "COMFYUI_WORKFLOW_NODES": [
     {
       "type": "prompt",
-      "key": "<redacted>",
+      "key": "text",
       "node_ids": [
         "12"
       ]
     },
     {
       "type": "model",
-      "key": "<redacted>",
+      "key": "unet_name",
       "node_ids": [
         "1"
       ]
     },
     {
       "type": "width",
-      "key": "<redacted>",
+      "key": "width",
       "node_ids": [
         "7"
       ]
     },
     {
       "type": "height",
-      "key": "<redacted>",
+      "key": "height",
       "node_ids": [
         "7"
       ]
     },
     {
       "type": "n",
-      "key": "<redacted>",
+      "key": "batch_size",
       "node_ids": [
         "7"
       ]
     },
     {
       "type": "steps",
-      "key": "<redacted>",
+      "key": "steps",
       "node_ids": [
         "8"
       ]
     },
     {
       "type": "seed",
-      "key": "<redacted>",
+      "key": "seed",
       "node_ids": [
         "8"
       ]
@@ -402,28 +402,28 @@
   "IMAGES_EDIT_COMFYUI_WORKFLOW_NODES": [
     {
       "type": "image",
-      "key": "<redacted>",
+      "key": "image",
       "node_ids": [
         "20"
       ]
     },
     {
       "type": "prompt",
-      "key": "<redacted>",
+      "key": "text",
       "node_ids": [
         "12"
       ]
     },
     {
       "type": "model",
-      "key": "<redacted>",
+      "key": "unet_name",
       "node_ids": [
         "1"
       ]
     },
     {
       "type": "seed",
-      "key": "<redacted>",
+      "key": "seed",
       "node_ids": [
         "8"
       ]

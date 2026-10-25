@@ -14,6 +14,7 @@
         "citations": true,
         "file_upload": true,
         "usage": true,
+        "image_generation": false,
         "vision": true
       },
       "knowledge": null,
@@ -27,6 +28,9 @@
       "toolIds": [
         "current_chat_search",
         "flux_studio"
+      ],
+      "filterIds": [
+        "image_skill_auto"
       ]
     },
     "params": {
@@ -34,7 +38,7 @@
       "top_p": 0.95,
       "top_k": 64,
       "function_calling": "default",
-      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 9780 символов>",
+      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 8189 символов>",
       "compact_token_threshold": 200000
     }
   },
@@ -53,6 +57,7 @@
         "citations": true,
         "file_upload": true,
         "usage": true,
+        "image_generation": false,
         "vision": true
       },
       "knowledge": null,
@@ -65,7 +70,7 @@
       "top_p": 0.95,
       "top_k": 64,
       "function_calling": "default",
-      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 8175 символов>"
+      "system": "<prompts/system_prompt_en.txt (+ thinking_plan_en.txt у основной): 6163 символов>"
     }
   }
 ]

@@ -2,7 +2,7 @@
   "realtime": {
     "ENABLED": false,
     "PROVIDER": "openai",
-    "AUTH_TYPE": "<redacted>",
+    "AUTH_TYPE": "api_key",
     "OPENAI_API_BASE_URL": "https://api.openai.com/v1",
     "OPENAI_API_KEY": "",
     "MODEL": "gpt-realtime-2.1-mini",

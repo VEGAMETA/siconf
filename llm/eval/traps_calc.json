@@ -1,0 +1,47 @@
+[
+ {
+  "id": "count_s",
+  "q": "How many times does the letter s (upper or lower case) appear in the phrase \"Mississippi's assistants\"?",
+  "a": "9"
+ },
+ {
+  "id": "count_e",
+  "q": "How many times does the letter e (upper or lower case) appear in the sentence \"Seventeen elephants entered the theatre\"?",
+  "a": "12"
+ },
+ {
+  "id": "weekday",
+  "q": "What day of the week was 1 March 2026? Answer with the English name of the day.",
+  "a": "sunday"
+ },
+ {
+  "id": "leap_2100",
+  "q": "How many calendar days are there from 27 February 2100 to 2 March 2100, counting both the first and the last day?",
+  "a": "4"
+ },
+ {
+  "id": "clock",
+  "q": "What is the smaller angle, in degrees, between the hour hand and the minute hand of an analog clock at 9:45?",
+  "a": "22.5"
+ },
+ {
+  "id": "rope_cuts",
+  "q": "A 6-metre rope is cut into pieces that are each 50 cm long. How many cuts are needed?",
+  "a": "11"
+ },
+ {
+  "id": "fence",
+  "q": "A straight fence is 30 metres long, with a post every 3 metres including one at each end. How many posts are there?",
+  "a": "11"
+ },
+ {
+  "id": "percent",
+  "q": "A price is first increased by 25% and then the new price is decreased by 20%. By how many percent does the final price differ from the original? Answer with a number (0 if unchanged).",
+  "a": "0"
+ },
+ {
+  "id": "pages",
+  "q": "You read a book from page 7 to page 23, both included. How many pages did you read?",
+  "a": "17"
+ }
+]
