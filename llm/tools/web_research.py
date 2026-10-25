@@ -27,6 +27,7 @@ MIN_FRESH = 3          # если за период нашлось меньше 
 # видео и соцсети: текста страницы там нет
 SKIP_READ = ("youtube.com", "youtu.be", "tiktok.com", "instagram.com", "facebook.com", "x.com", "twitter.com", "vk.com/video")
 PERIOD_DAYS = {"day": 1, "week": 7, "month": 31, "year": 366}
+PASSES = {}            # message_id ответа -> сколько раз в нём уже искали
 DATE_RE = re.compile(
     r"\b20\d\d-[01]\d-[0-3]\d\b|\b[0-3]?\d\.[01]\d\.20\d\d\b|"
     r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? [0-3]?\d,? 20\d\d\b|"
@@ -78,6 +79,12 @@ class Tools:
             if hint and hint.group(1) in PERIOD_DAYS:
                 period = hint.group(1)
         queries = [q.strip() for q in re.split(r"\s*;\s*|\n", query or "") if q.strip()][:MAX_QUERIES] or [query]
+        # номер прохода в этом ответе: небольшие модели сами второй раз не ищут, подсказка в конце результата подталкивает
+        answer_id = (__metadata__ or {}).get("message_id") or (__metadata__ or {}).get("chat_id") or ""
+        PASSES[answer_id] = PASSES.get(answer_id, 0) + 1
+        if len(PASSES) > 500:
+            PASSES.clear()
+        current_pass = PASSES[answer_id]
 
         async def one(q):
             results = await _searxng(q, period)
@@ -132,4 +139,12 @@ class Tools:
                 lines.append(f"\n[{i + 1}] {results[i]['url']}\n{cut}")
         else:
             lines.append("\nNo page could be read (blocked or empty). Use the snippets and say that details are unverified.")
+        if current_pass == 1:
+            lines.append("\n[This was search pass 1. Before answering: list the concrete names in these texts (projects, games, products, tools, versions) that matter for the question, "
+                         "and run search_web once more with 2-4 of those names or with the parts of the topic still missing (for example tools and utilities around it), "
+                         "separated by \" ; \". Answer only after that second pass.]")
+        elif current_pass == 2:
+            lines.append("\n[This was search pass 2. Answer now unless something essential is still missing; then one more targeted search is allowed.]")
+        else:
+            lines.append(f"\n[This was search pass {current_pass}. Write the answer now from what you have.]")
         return "\n".join(lines)
