@@ -33,3 +33,5 @@ llm/law/law.db
 llm/law/law.tmp
 llm/law/.venv/
 llm/law/*.log
+llm/health/clinrec.db
+llm/health/clinrec.tmp

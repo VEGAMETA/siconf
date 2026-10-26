@@ -1,23 +1,43 @@
 """
 title: Медицинская литература и инструкции к препаратам
-description: Поиск по научной медицинской литературе (Europe PMC: PubMed и не только, с аннотациями; по умолчанию систематические обзоры, метаанализы и клинические руководства за последние 10 лет) и официальные инструкции к препаратам (openFDA, через прокси — из России закрыт; если сайт недоступен — локальная копия). Ответы со ссылками на PubMed для проверки.
+description: Клинические рекомендации Минздрава РФ (точный поиск по фрагментам с русским стеммингом и чтение разделов), научная медицинская литература (Europe PMC: PubMed и не только, с аннотациями; по умолчанию систематические обзоры, метаанализы и клинические руководства за последние 10 лет) и официальные инструкции к препаратам (openFDA, через прокси — из России закрыт; если сайт недоступен — локальная копия). Ответы со ссылками для проверки.
 author: local
-version: 0.3.0
+version: 0.4.0
 """
 
 import json
 import os
 import re
 import sqlite3
+import sys
 import urllib.parse
 from datetime import date
 
 import aiohttp
 
+try:
+    import snowballstemmer
+except ImportError:
+    # ставится uv pip в окружение Open WebUI; если его снесло обновлением — из venv сборщика базы законов (чистый Python)
+    sys.path.append(r"D:\llm\law\.venv\Lib\site-packages")
+    import snowballstemmer
+
 EUROPE_PMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 OPENFDA = "https://api.fda.gov/drug/label.json"
 OPENFDA_PROXY = "http://127.0.0.1:10808"  # v2rayN: api.fda.gov отвечает 403 на запросы из России
 OFFLINE_DB = r"D:\llm\health\openfda_labels.db"  # запасная копия на случай недоступности сайта (D:\llm\health\openfda_offline.py)
+CLINREC_DB = r"D:\llm\health\clinrec.db"  # фрагменты клинических рекомендаций (D:\llm\health\clinrec_index.py)
+STEM = snowballstemmer.stemmer("russian")
+SECTION_CHARS = 12000
+# общие слова названий КР — по ним нужную КР не выбрать
+GENERIC = set(STEM.stemWords("острый острая хронический хроническая взрослые взрослых дети детей болезнь заболевание "
+                             "инфекция синдром тип типа у при".split()))
+# слова запроса, которые в КР пишут иначе: каждое ищется вместе со своими вариантами
+SYNONYMS = {STEM.stemWord(k): [STEM.stemWord(v) for v in vs] for k, vs in {
+    "длительность": ["продолжительность"], "продолжительность": ["длительность"], "дозировка": ["доза"], "дозы": ["доза"],
+    "антибиотик": ["антибактериальный"], "антибиотики": ["антибактериальный"], "жаропонижающие": ["антипиретик", "лихорадка"],
+    "температура": ["лихорадка"], "давление": ["АД"], "сахар": ["глюкоза", "гликемия"],
+}.items()}
 # пролонгированные и прочие модифицированные формы (так же определяет openfda_offline.py)
 RELEASE = re.compile(r"extended[- ]release|delayed[- ]release|sustained[- ]release|controlled[- ]release|modified[- ]release|"
                      r"prolonged[- ]release|\b(?:ER|XR|XL|SR|CR|DR)\b", re.I)
@@ -87,7 +107,132 @@ def _offline_labels(name):
             for g, p, route, form, eff, brands, sid, sections in rows], exported
 
 
+def _clinrec():
+    if not os.path.exists(CLINREC_DB):
+        raise FileNotFoundError(f"no guidelines index {CLINREC_DB}; run D:\\llm\\health\\clinrec_index.py")
+    return sqlite3.connect(f"file:{CLINREC_DB}?mode=ro", uri=True)
+
+
+def _guideline_line(row):
+    code, title, age, published, url = row
+    return f"КР {code} «{title}» ({age.lower()}, {published[:4]}) {url}"
+
+
 class Tools:
+    def search_guidelines(self, query: str, age: str = "", code: str = "") -> str:
+        """
+        Search the Russian clinical guidelines (клинические рекомендации Минздрава РФ, 92 common conditions, separate ones for adults and children) for exact passages: doses, regimens, targets, durations, criteria, recommendation grades. Returns the matching passages with guideline code and section. Use it first for any clinical question.
+        :param query: Russian medical keywords as the guideline would phrase them, e.g. "целевой уровень мочевой кислоты", "внебольничная пневмония амбулаторно амоксициллин длительность", "гипертензия у беременных метилдопа".
+        :param age: "adults" or "children" to search only guidelines for that age; empty for both.
+        :param code: Optional guideline code to search only in, e.g. "936_1" (from an earlier result).
+        :return: Up to 6 passages: guideline, section, text; read a whole section with read_guideline.
+        """
+        try:
+            con = _clinrec()
+        except FileNotFoundError as e:
+            return str(e)
+        words = list(dict.fromkeys(w for w in STEM.stemWords(re.findall(r"[а-яёa-z0-9]+", (query or "").lower())) if len(w) > 1))[:10]
+        if not words:
+            return "Pass Russian medical keywords."
+        where, args = "", []
+        if code:
+            where, args = " and p.code = ?", [code.strip()]
+        elif (age or "").lower().startswith(("adult", "взросл")):
+            where, args = " and g.age = 'Взрослые'", []
+        elif (age or "").lower().startswith(("child", "дет", "ребен", "ребён")):
+            where, args = " and g.age = 'Дети'", []
+        sql = ("select p.id, p.code, p.section, p.text, bm25(search) from search s join passages p on p.id = s.rowid "
+               "join guidelines g on g.code = p.code where search match ?{} order by bm25(search) limit 6")
+        term = lambda w: "(" + " OR ".join(f'"{x}"*' for x in [w] + SYNONYMS.get(w, [])) + ")"
+        match = lambda ws, op=" AND ": op.join(term(w) for w in ws)
+
+        def run(cond, cargs, need=6):
+            """Сначала все слова; не хватает — варианты без одного слова (лучшие по bm25); потом любое слово."""
+            q = sql.format(cond)
+            rows = con.execute(q, [match(words)] + cargs).fetchall()
+            if len(rows) < need and len(words) > 2:
+                found = {}
+                for i in range(len(words)):
+                    for r in con.execute(q, [match(words[:i] + words[i + 1:])] + cargs):
+                        found.setdefault(r[0], r)
+                seen = {r[0] for r in rows}
+                rows += sorted((r for r in found.values() if r[0] not in seen), key=lambda r: r[4])[:need - len(rows)]
+            if len(rows) < need:
+                seen = {r[0] for r in rows}
+                rows += [r for r in con.execute(q, [match(words, " OR ")] + cargs) if r[0] not in seen][:need - len(rows)]
+            return rows
+
+        try:
+            heads = {r[0]: r for r in con.execute("select code, title, age, published, url from guidelines")}
+            rows = []
+            if not code:
+                # КР, в названии которой больше всего слов запроса («пневмония», «подагра»): сначала фрагменты из неё —
+                # иначе длинные таблицы и приложения других КР перебивают её по bm25
+                score = {c: len(set(words) & (set(STEM.stemWords(re.findall(r"[а-яё0-9]+", h[1].lower())) ) - GENERIC))
+                         for c, h in heads.items()}
+                best = max(score.values(), default=0)
+                top = [c for c, s in score.items() if best and s == best]
+                if top:
+                    rows = run(where + f" and p.code in ({','.join('?' * len(top))})", args + top, need=4)[:4]
+            seen = {r[0] for r in rows}
+            rows += [r for r in run(where, args) if r[0] not in seen][:6 - len(rows)]
+            rows = [r[1:4] for r in rows]
+            # лучший результат — весь его подраздел: модель редко дочитывает сама, а выбор схемы зависит от соседнего
+            # текста (амбулаторно или в стационаре, с сопутствующими или без)
+            full = ""
+            if rows:
+                full = "\n".join(t for (t,) in con.execute("select text from passages where code = ? and section = ? order by pos",
+                                                          rows[0][:2]))
+        finally:
+            con.close()
+        if not rows:
+            return f'Nothing found in the guidelines for "{query}". Try other words or search_medical_literature.'
+        lines = [f'Клинические рекомендации Минздрава РФ: "{query}"', ""]
+        for n, (c, section, text) in enumerate(rows, 1):
+            lines.append(f"[{n}] {_guideline_line(heads[c])}\n    Раздел: {section}  → read_guideline(\"{c}\", \"{section.split(' › ')[-1][:40]}\")")
+            if n == 1 and len(full) <= SECTION_CHARS:
+                lines.append("    (весь подраздел)\n    " + full.replace("\n", "\n    "))
+            else:
+                lines.append("    " + text[:1500].replace("\n", "\n    "))
+        lines.append("\nCite as «КР <code>, раздел <section>». The first result is the whole subsection: base the regimen on it. "
+                     "Read other subsections with read_guideline when needed.")
+        return "\n".join(lines)
+
+    def read_guideline(self, code: str, section: str = "", offset: int = 0) -> str:
+        """
+        Read a section of a Russian clinical guideline in full, or list its sections.
+        :param code: Guideline code, e.g. "936_1".
+        :param section: Start of the section title, e.g. "3. Лечение", "2.3", "Приложение А3"; empty to list the sections.
+        :param offset: Character offset for long sections.
+        :return: The section text or the table of contents.
+        """
+        try:
+            con = _clinrec()
+        except FileNotFoundError as e:
+            return str(e)
+        try:
+            head = con.execute("select code, title, age, published, url from guidelines where code = ?", ((code or "").strip(),)).fetchone()
+            if not head:
+                return f'No guideline "{code}". Find codes with search_guidelines.'
+            parts = con.execute("select section, text from passages where code = ? order by pos", (head[0],)).fetchall()
+        finally:
+            con.close()
+        sections = {}
+        for s, t in parts:
+            sections.setdefault(s, []).append(t)
+        if not section:
+            toc = "\n".join(f"- {s} ({sum(map(len, t)) // 1000 + 1} тыс. символов)" for s, t in sections.items())
+            return f"{_guideline_line(head)}\nРазделы:\n{toc}"
+        want = section.strip().lower()
+        name = next((s for s in sections if s.lower().startswith(want)), None) or next((s for s in sections if want in s.lower()), None)
+        if not name:
+            return f'No section "{section}" in КР {code}. Sections: ' + "; ".join(sections)
+        text = "\n".join(sections[name])
+        offset = max(0, int(offset or 0))
+        more = (f"\n[… ещё {len(text) - offset - SECTION_CHARS} символов: read_guideline(\"{code}\", \"{name[:40]}\", offset={offset + SECTION_CHARS})]"
+                if len(text) > offset + SECTION_CHARS else "")
+        return f"{_guideline_line(head)}\nРаздел: {name}\n\n{text[offset:offset + SECTION_CHARS]}{more}"
+
     async def search_medical_literature(self, query: str, evidence: str = "reviews", years: int = 10) -> str:
         """
         Search medical research (PubMed and more via Europe PMC) and return titles, years, publication types, abstracts and PubMed links.
