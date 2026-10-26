@@ -107,6 +107,182 @@ def _offline_labels(name):
             for g, p, route, form, eff, brands, sid, sections in rows], exported
 
 
+EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+ICITE = "https://icite.od.nih.gov/api/pubs"
+STUDY_FILTERS = {"rct": "randomized controlled trial[pt]", "meta": "(meta-analysis[pt] OR systematic review[pt])",
+                 "guideline": "(guideline[pt] OR practice guideline[pt])", "review": "review[pt]"}
+# вес дизайна исследования при ранжировании
+DESIGN = [("Retracted Publication", None), ("Meta-Analysis", 2.2), ("Systematic Review", 2.0), ("Practice Guideline", 2.0),
+          ("Guideline", 1.8), ("Randomized Controlled Trial", 1.8), ("Clinical Trial", 0.8), ("Comparative Study", 0.8),
+          ("Multicenter Study", 0.6), ("Observational Study", 0.5), ("Review", 0.5),
+          ("Case Reports", -1.0), ("Comment", -2.0), ("Letter", -2.0), ("Editorial", -2.0)]
+WEAK_JOURNALS = {"cureus", "medicine (baltimore)", "j pak med assoc", "pak j med sci"}  # много слабых работ — понижаются
+STOP = {"the", "of", "in", "and", "or", "with", "for", "vs", "versus", "a", "an", "on", "to", "by", "patients", "disease"}
+# как пишут в заголовках статей о приёме лекарств (модель пишет «once daily vs twice daily» — статьи «single daily dose»)
+EN_PHRASES = [(r"\bonce[- ]daily\b|\bonce a day\b", "single daily dose"), (r"\btwice[- ]daily\b|\btwice a day\b", "divided dose"),
+              (r"\bstarting dose\b", "initial dose")]
+# слова, которые сужают поиск PubMed, не добавляя смысла: при пустой выдаче выбрасываются первыми
+GENERIC_EN = {"disease", "diseases", "rate", "rates", "standard", "dosing", "dosage", "comparison", "compared", "comparing",
+              "study", "studies", "trial", "trials", "randomized", "patients", "patient", "efficacy", "effectiveness", "safety",
+              "outcome", "outcomes", "treatment", "therapy", "management", "regimen", "regimens", "versus", "vs", "meta-analysis",
+              "systematic", "review", "adults", "adult", "clinical", "effect", "effects"}
+
+
+def _abstract(article):
+    """Аннотация: сначала результаты и выводы (в них цифры), потом остальное."""
+    parts = [(el.get("Label") or "", "".join(el.itertext()).strip()) for el in article.iter("AbstractText")]
+    key = [f"{lab}: {t}" if lab else t for lab, t in parts if re.match(r"(RESULT|CONCLUSION|FINDING|INTERPRETATION)", lab or "", re.I)]
+    rest = [f"{lab}: {t}" if lab else t for lab, t in parts if not re.match(r"(RESULT|CONCLUSION|FINDING|INTERPRETATION)", lab or "", re.I)]
+    if key:
+        return " ".join(key)
+    text = " ".join(rest)
+    # без разметки разделов выводы — в конце аннотации: начало (что изучали) и конец (цифры и вывод)
+    return text if len(text) <= ABSTRACT_CHARS else text[:300] + " […] " + text[-(ABSTRACT_CHARS - 320):]
+
+
+async def _pubmed(query, study_type, years):
+    import math
+    import xml.etree.ElementTree as ET
+    import asyncio
+    # PubMed требует все слова запроса, а модель пишет длинно («metformin once daily vs twice daily dosing efficacy safety»
+    # — 0 статей). Ослабление по шагам: формулировки статей («once daily» в заголовках — «single daily dose»); без чисел,
+    # связок и общих слов; варианты без одного слова, кроме первого (это препарат или болезнь) — найденное объединяется.
+    # Обрезка до первых слов и «любое из слов» давали мусор (блокады нервов в ортопедии, онкология)
+    phrased = query
+    for a, b in EN_PHRASES:
+        phrased = re.sub(a, b, phrased, flags=re.I)
+    content = [w for w in re.findall(r"[\w'-]+", phrased)
+               if not re.fullmatch(r"\d+([.,]\d+)?|mg|mcg|g|kg|vs|versus|or|and|of|the|in|with|for|on|to", w, re.I)]
+    core = [w for w in content if w.lower().strip("'") not in GENERIC_EN]
+    variants = list(dict.fromkeys([query, phrased, " ".join(core)]))
+    drop_one = [" ".join(core[:i] + core[i + 1:]) for i in range(1, len(core))] if len(core) > 2 else []
+    design = f" AND {STUDY_FILTERS[study_type]}" if study_type in STUDY_FILTERS else ""
+    humans = " NOT (animals[mh] NOT humans[mh])"
+
+    async def ncbi(s, endpoint, params, parse):
+        """NCBI без ключа — 3 запроса в секунду; сверх лимита вместо данных приходит ошибка: пауза и повтор."""
+        for attempt in range(4):
+            await asyncio.sleep(0.4 + attempt * 1.2)
+            async with s.get(EUTILS + endpoint, params={**params, "tool": "local-owui"}) as r:
+                body = await r.read()
+            try:
+                return parse(body)
+            except Exception:
+                if attempt == 3:
+                    raise RuntimeError(f"NCBI {endpoint}: {body[:150]!r}")
+
+    async with aiohttp.ClientSession(trust_env=False, timeout=aiohttp.ClientTimeout(total=60)) as s:
+        async def search(q, n=40, filtered=True):
+            params = {"db": "pubmed", "retmode": "json", "retmax": n, "sort": "relevance",
+                      "term": f"({q})" + (design if filtered else "") + humans}
+            if years > 0:
+                params.update({"datetype": "pdat", "mindate": date.today().year - years, "maxdate": date.today().year})
+            return (await ncbi(s, "esearch.fcgi", params, lambda b: json.loads(b)["esearchresult"])).get("idlist") or []
+
+        ids, used = [], []
+        for q in variants:
+            ids = await search(q)
+            if ids:
+                used = [q]
+                break
+        if not ids:
+            for q in drop_one:
+                found = await search(q, 15)
+                ids += [i for i in found if i not in ids]
+                used += [q] if found else []
+        if ids and design:
+            # плюс без фильтра по дизайну: крупные сравнительные когорты (в вопросах доз и безопасности их много) тоже
+            # попадают в список — ниже РКИ и мета-анализов по весу дизайна
+            for q in used[:2]:
+                ids += [i for i in await search(q, 15, filtered=False) if i not in ids]
+        ids = ids[:50]
+        found = {"count": len(ids)}
+        query = " | ".join(used) or query
+        if not ids:
+            return f'No PubMed results for "{query}" (study_type={study_type}). Use fewer or broader words, or study_type="any".'
+        root = await ncbi(s, "efetch.fcgi", {"db": "pubmed", "retmode": "xml", "id": ",".join(ids)}, ET.fromstring)
+        try:
+            async with s.get(ICITE, params={"pmids": ",".join(ids), "fl": "pmid,citation_count,relative_citation_ratio"}) as r:
+                icite = {str(x["pmid"]): x for x in (await r.json(content_type=None)).get("data", [])}
+        except Exception:
+            icite = {}
+    words = {w for w in re.findall(r"[a-z0-9]+", query.lower()) if w not in STOP and len(w) > 2}
+    items = []
+    for rank, art in enumerate(root.iter("PubmedArticle")):
+        pmid = art.findtext(".//PMID")
+        title = "".join(art.find(".//ArticleTitle").itertext()) if art.find(".//ArticleTitle") is not None else ""
+        journal = art.findtext(".//Journal/ISOAbbreviation") or art.findtext(".//Journal/Title") or ""
+        year = art.findtext(".//JournalIssue/PubDate/Year") or (art.findtext(".//JournalIssue/PubDate/MedlineDate") or "")[:4]
+        types = [t.text for t in art.iter("PublicationType")]
+        weights = [w for t, w in DESIGN if t in types]
+        if None in weights:
+            continue  # отозванные статьи
+        info = icite.get(pmid, {})
+        rcr = info.get("relative_citation_ratio") or 0
+        overlap = len(words & set(re.findall(r"[a-z0-9]+", title.lower()))) / max(1, len(words))
+        score = (3 * (1 - rank / 40) + max(weights, default=0) + min(math.log2(1 + rcr), 2.5) + 2 * overlap
+                 - (1.5 if journal.lower().rstrip(".") in WEAK_JOURNALS else 0))
+        items.append((score, pmid, title, journal, year, [t for t in types if t not in ("Journal Article",)], info, _abstract(art)))
+    items.sort(key=lambda x: -x[0])
+    lines = [f'PubMed: "{query}" | study_type={study_type} | {found.get("count")} found, best 8 of {len(items)} by relevance, design and citations', ""]
+    for n, (_, pmid, title, journal, year, types, info, abstract) in enumerate(items[:8], 1):
+        cites = f"cited {info.get('citation_count', '?')}, RCR {info.get('relative_citation_ratio') or 0:.1f}" if info else ""
+        lines.append(f"[{n}] {_clean(title)}")
+        lines.append(f"    {journal} {year} | {', '.join(types[:3]) or 'article'} | {cites} | https://pubmed.ncbi.nlm.nih.gov/{pmid}/")
+        if abstract:
+            lines.append("    " + _clean(abstract)[:ABSTRACT_CHARS] + (" […]" if len(abstract) > ABSTRACT_CHARS else ""))
+        lines.append("")
+    lines.append("Use only studies whose comparison matches the question (check what the title compares: A vs B); ignore the rest. "
+                 "Cite by number with the PubMed link; state design, number of patients and the result numbers from the abstract. "
+                 "Claims about safety or efficacy must come from these abstracts, not from memory. If nothing matches, search again "
+                 "with other words. RCR = citations relative to the field (1.0 = average).")
+    return "\n".join(lines)
+
+
+HEALTH_DIR = r"D:\llm\health"
+CATALOG_MAX_AGE = 30 * 86400  # список действующих КР обновляется раз в месяц
+
+
+def _stems(text):
+    return set(STEM.stemWords(re.findall(r"[а-яё0-9]+", (text or "").lower()))) - GENERIC
+
+
+def _fetch_missing(words, age, local_best):
+    """Среди всех действующих КР на cr.minzdrav.gov.ru есть совпадающая с запросом лучше локальных (local_best — число
+    слов запроса в названии и диагнозах лучшей локальной) — скачать и проиндексировать."""
+    import json as _json
+    import time
+    if HEALTH_DIR not in sys.path:
+        sys.path.insert(0, HEALTH_DIR)
+    import clinrec_fetch
+    import clinrec_index
+    path = os.path.join(HEALTH_DIR, "clinrec_catalog.json")
+    if os.path.exists(path) and time.time() - os.path.getmtime(path) < CATALOG_MAX_AGE:
+        items = _json.load(open(path, encoding="utf-8"))
+    else:
+        items = clinrec_fetch.catalog()
+    want = set(words) - GENERIC
+    adults = None if not age else age.lower().startswith(("adult", "взросл"))
+    scored = []
+    for it in items:
+        names = it["Name"] + " " + " ".join(m.get("MkbName", "") for m in it.get("Mkbs") or [])
+        hit = len(want & _stems(names))
+        if hit and (adults is None or ("Взрос" in it["AgeCategoryStr"]) == adults):
+            scored.append((hit, "Взрос" in it["AgeCategoryStr"], it["PublishDateStr"], it))
+    if not scored:
+        return []
+    scored.sort(key=lambda x: x[:3], reverse=True)
+    best = scored[0][0]
+    added = []
+    local = os.path.join(HEALTH_DIR, "clinrec")
+    have = {f.split()[0] for f in os.listdir(local)} if os.path.isdir(local) else set()
+    for hit, _, _, it in scored[:2]:  # лучшая и, если так же подходит, вторая (например, взрослая и детская)
+        if hit == best and hit > local_best and it["CodeVersion"] not in have:
+            head, n = clinrec_index.add(clinrec_fetch.fetch(it))
+            added.append(f"КР {head['code']} «{head['title']}» ({head['age'].lower()})")
+    return added
+
+
 def _clinrec():
     if not os.path.exists(CLINREC_DB):
         raise FileNotFoundError(f"no guidelines index {CLINREC_DB}; run D:\\llm\\health\\clinrec_index.py")
@@ -121,7 +297,7 @@ def _guideline_line(row):
 class Tools:
     def search_guidelines(self, query: str, age: str = "", code: str = "") -> str:
         """
-        Search the Russian clinical guidelines (клинические рекомендации Минздрава РФ, 92 common conditions, separate ones for adults and children) for exact passages: doses, regimens, targets, durations, criteria, recommendation grades. Returns the matching passages with guideline code and section. Use it first for any clinical question.
+        Search the Russian clinical guidelines (клинические рекомендации Минздрава РФ; common conditions are local, any other current guideline is downloaded automatically when the query names its condition; separate ones for adults and children) for exact passages: doses, regimens, targets, durations, criteria, recommendation grades. Returns the matching passages with guideline code and section. Use it first for any clinical question.
         :param query: Russian medical keywords as the guideline would phrase them, e.g. "целевой уровень мочевой кислоты", "внебольничная пневмония амбулаторно амоксициллин длительность", "гипертензия у беременных метилдопа".
         :param age: "adults" or "children" to search only guidelines for that age; empty for both.
         :param code: Optional guideline code to search only in, e.g. "936_1" (from an earlier result).
@@ -162,14 +338,25 @@ class Tools:
                 rows += [r for r in con.execute(q, [match(words, " OR ")] + cargs) if r[0] not in seen][:need - len(rows)]
             return rows
 
+        names = lambda: {c: _stems(t + " " + (m or "")) for c, t, m in con.execute("select code, title, mkb from guidelines")}
+        added = []
+        if not code:
+            # в каталоге всех действующих КР есть та, что совпадает с запросом лучше локальных («ревматоидный артрит»
+            # при локальной «Псориатический артрит») — скачать её до поиска; каталог — локальный файл, проверка быстрая
+            local_best = max((len(set(words) & n) for n in names().values()), default=0)
+            con.close()
+            try:
+                added = _fetch_missing(words, age, local_best)
+            except Exception as e:
+                added = [f"(не удалось скачать КР с cr.minzdrav.gov.ru: {e})"]
+            con = _clinrec()
         try:
             heads = {r[0]: r for r in con.execute("select code, title, age, published, url from guidelines")}
             rows = []
             if not code:
-                # КР, в названии которой больше всего слов запроса («пневмония», «подагра»): сначала фрагменты из неё —
-                # иначе длинные таблицы и приложения других КР перебивают её по bm25
-                score = {c: len(set(words) & (set(STEM.stemWords(re.findall(r"[а-яё0-9]+", h[1].lower())) ) - GENERIC))
-                         for c, h in heads.items()}
+                # КР, в названии или диагнозах которой больше всего слов запроса («пневмония», «подагра»): сначала фрагменты
+                # из неё — иначе длинные таблицы и приложения других КР перебивают её по bm25
+                score = {c: len(set(words) & n) for c, n in names().items()}
                 best = max(score.values(), default=0)
                 top = [c for c, s in score.items() if best and s == best]
                 if top:
@@ -188,6 +375,8 @@ class Tools:
         if not rows:
             return f'Nothing found in the guidelines for "{query}". Try other words or search_medical_literature.'
         lines = [f'Клинические рекомендации Минздрава РФ: "{query}"', ""]
+        if added:
+            lines[1:1] = ["Скачано с cr.minzdrav.gov.ru и добавлено в базу: " + "; ".join(added), ""]
         for n, (c, section, text) in enumerate(rows, 1):
             lines.append(f"[{n}] {_guideline_line(heads[c])}\n    Раздел: {section}  → read_guideline(\"{c}\", \"{section.split(' › ')[-1][:40]}\")")
             if n == 1 and len(full) <= SECTION_CHARS:
@@ -195,7 +384,10 @@ class Tools:
             else:
                 lines.append("    " + text[:1500].replace("\n", "\n    "))
         lines.append("\nCite as «КР <code>, раздел <section>». The first result is the whole subsection: base the regimen on it. "
-                     "Read other subsections with read_guideline when needed.")
+                     "Read other subsections with read_guideline when needed.\nNext step for any treatment question (dose, how often, how "
+                     "long, which drug or regimen, \"is this too much\", \"how much is best\"): the guideline gives the allowed range, trials "
+                     "show what works better within it — call search_medical_literature now with study_type=\"rct\" (3-5 English words: "
+                     "drug, condition, what is compared), then study_type=\"meta\".")
         return "\n".join(lines)
 
     def read_guideline(self, code: str, section: str = "", offset: int = 0) -> str:
@@ -233,19 +425,29 @@ class Tools:
                 if len(text) > offset + SECTION_CHARS else "")
         return f"{_guideline_line(head)}\nРаздел: {name}\n\n{text[offset:offset + SECTION_CHARS]}{more}"
 
-    async def search_medical_literature(self, query: str, evidence: str = "reviews", years: int = 10) -> str:
+    async def search_medical_literature(self, query: str, study_type: str = "any", years: int = 0) -> str:
         """
-        Search medical research (PubMed and more via Europe PMC) and return titles, years, publication types, abstracts and PubMed links.
-        Use it for questions about diseases, symptoms, treatments, tests and medicines. Write the query in English with medical terms (e.g. "statin myalgia", "vitamin D supplementation fracture prevention").
-        :param query: Short English query with medical terms; 2-6 words work best.
-        :param evidence: "reviews" (default) for systematic reviews, meta-analyses and clinical guidelines; "all" to include single studies.
-        :param years: How many recent years to search (default 10).
-        :return: Numbered results with title, journal, year, publication type, PMID link and abstract.
+        Search PubMed for clinical studies and reviews, ranked by relevance, study design and citation impact; returns titles, journal, year, study type, citations and the results/conclusions of each abstract with PubMed links.
+        For "which dose / which drug is better" questions search randomized trials that compare exactly that (study_type="rct", e.g. "allopurinol dose escalation gout"), then meta-analyses (study_type="meta"). Write the query in English with medical terms.
+        :param query: 3-5 English concept words as article titles would say them, no "vs", quotes or filler: drug, condition, what is compared ("allopurinol dose escalation gout", "metformin extended release", "warfarin duration venous thromboembolism"). Long queries find nothing.
+        :param study_type: "any" (default), "rct" (randomized controlled trials), "meta" (meta-analyses and systematic reviews), "guideline", "review".
+        :param years: Only the last N years; 0 (default) for all years — classic trials are often old.
+        :return: Up to 8 ranked studies with links.
         """
+        try:
+            st = (study_type or "any").lower()
+            result = await _pubmed(query, st, int(years or 0))
+            if result.startswith("No PubMed results") and st != "any":
+                # с фильтром по дизайну пусто — без фильтра (обзоры Cochrane и старые РКИ размечены не всегда)
+                result = f"(nothing with study_type={st}; all designs:)\n" + await _pubmed(query, "any", int(years or 0))
+            return result
+        except Exception as e:
+            pubmed_error = f"(PubMed unavailable: {e}; Europe PMC fallback)\n"
         years = max(1, min(int(years or 10), 50))
         parts = [f"({query})", f"PUB_YEAR:[{date.today().year - years} TO {date.today().year}]"]
-        if (evidence or "reviews").lower() != "all":
+        if (study_type or "any").lower() in ("meta", "review", "guideline"):
             parts.append(EVIDENCE)
+        evidence = study_type
         params = {"query": " AND ".join(parts), "format": "json", "resultType": "core", "pageSize": RESULTS}
         try:
             async with aiohttp.ClientSession(trust_env=False) as s:
@@ -257,7 +459,7 @@ class Tools:
         if not results:
             hint = ' Try evidence="all" or other words.' if (evidence or "reviews").lower() != "all" else " Try other or fewer words."
             return f'No results for "{query}".{hint}'
-        lines = [f'Europe PMC: "{query}" | {data.get("hitCount")} found | showing {len(results)} | evidence: {evidence} | years: last {years}', ""]
+        lines = [pubmed_error + f'Europe PMC: "{query}" | {data.get("hitCount")} found | showing {len(results)} | evidence: {evidence} | years: last {years}', ""]
         for n, r in enumerate(results, 1):
             types = ", ".join(((r.get("pubTypeList") or {}).get("pubType")) or [])
             journal = ((r.get("journalInfo") or {}).get("journal") or {}).get("title") or r.get("journalTitle") or ""
@@ -319,7 +521,8 @@ class Tools:
         fda = label.get("openfda") or {}
         lines = [f"FDA drug label: {', '.join(fda.get('generic_name', [name])[:2])} | brands: {', '.join(fda.get('brand_name', [])[:4])} | "
                  f"{', '.join(fda.get('product_type', []))} | route: {_route(label)} | form: {_form(label)} | effective {label.get('effective_time', '')}",
-                 "Note: US label; doses and registered indications in Russia may differ (check the Russian instruction in ГРЛС)."]
+                 "US FDA label, not a Russian guideline: cite these doses as «инструкция FDA», never as КР; when the Russian guideline "
+                 "gives a dose, the guideline dose comes first. Use the label mainly for contraindications, interactions, adverse effects, pregnancy."]
         if len(variants) > 1:
             lines.append(f"Other forms with their own labels and doses: {listed}. If the user's form differs, call drug_label again with route/form.")
         if offline:

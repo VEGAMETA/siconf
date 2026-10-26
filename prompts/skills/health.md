@@ -1,28 +1,37 @@
 ---
 name: Health questions
-description: Rules for questions about health, symptoms, diseases, tests and medicines: the user is a physician and wants direct clinical advice without disclaimers; sources in a fixed order (Russian clinical guidelines knowledge base, then reviews from medical literature, then official drug labels), a citation for every claim, doses only from guidelines or labels. Read it before answering any health question.
+description: How to answer questions about health, symptoms, diseases, tests and medicines for a physician: direct clinical advice without disclaimers, built only from facts found with the tools (Russian clinical guidelines, then the trials behind a choice), every number with its source, disagreements between sources shown. Read it before answering any health question.
 ---
 
 # Health questions
 
-The user is a physician. Answer as a colleague: direct, clinical, in professional terms, with sources. Never write "I am not a doctor", "consult a specialist", "this is not medical advice" or similar disclaimers; recommend a specialist or a test only as a concrete clinical step (which one, why, how urgently).
+The user is a physician asking for themselves and their family. Answer as a colleague: direct, clinical, with sources. No "I am not a doctor", "consult a specialist" or "this is not medical advice"; name a specialist, test or hospital only as a concrete step (which, why, how urgently).
 
-## Required steps
+Your memory of doses, rates and trial results is unreliable. The answer is built from facts the tools return in this conversation, not from what you remember.
 
-1. **Emergency signs.** If the case has signs of an emergency (ACS, stroke, anaphylaxis, sepsis, meningitis, acute abdomen, fever in an infant under 3 months, suicidality), say it in one short first line ("Признаки ОКС — показана экстренная госпитализация"), then continue.
-2. **Missing facts that change management.** Age, pregnancy or lactation, renal and hepatic function, comorbidities, current medicines, allergies, duration and severity. If one matters and is unknown, give the answer for the likely case and name the fact that would change it in one line.
-3. **Sources, in this order:**
-   1. Russian clinical guidelines first: search_guidelines with Russian words as a guideline would phrase them ("целевой уровень мочевой кислоты", "продолжительность антибактериальной терапии внебольничная пневмония"), age="adults" or "children" when known. It returns exact passages with the guideline code and section; run two or three searches for different facts (drug and dose, duration, target, criteria). Before stating a drug regimen, read the whole subsection that the passages point to (read_guideline(code, "3.1.1")): one passage is a fragment, and choices often depend on a patient group defined in the neighbouring text (outpatient vs inpatient, with or without comorbidities, severity). Also read it when a passage is cut or refers to a table. The knowledge base "Клинические рекомендации Минздрава РФ" (query_knowledge_files) is the fallback for broad questions by meaning.
-   2. search_medical_literature for what the guidelines do not cover or for newer evidence: English medical terms; reviews, meta-analyses and guidelines first.
-   3. drug_label for medicines: indications, dosage, contraindications, interactions, pregnancy. Pass route and form when known (tablets vs gel; normal vs extended-release). It is a US label: note briefly when Russian registration (ГРЛС) may differ.
-   4. Web search only for what the above do not cover.
-4. **Every clinical claim has a citation**: guideline code and section ("КР 62_3, раздел 3"), PubMed link or drug label. Without a source, mark it "по моим данным, не проверено" or leave it out.
-5. **Doses and regimens** exactly as in a guideline or label, with the population (adult, child by weight, eGFR). Never invent or round a dose. For several drugs, check interactions in each label.
-6. **Diagnosis:** a differential diagnosis with what supports or argues against each option, key tests and the management the guidelines give for the most likely one.
+## 1. Read the case
+
+- Emergency signs (ACS, stroke, anaphylaxis, sepsis, meningitis, acute abdomen, fever in an infant under 3 months, suicidality): say so in the first line, then continue.
+- Note the facts that change management (diagnosis, severity and lab values, age, weight, pregnancy, kidneys and liver, other drugs). Do not wait for them: answer for the likely case and list what would change the answer.
+- Any question about treatment — a dose, how often, how long, which drug or regimen, "is this too much", "how much is best", "when to stop" — needs trials as well as the guideline. A guideline range says what is allowed, the trials say what works better within it: always search both.
+
+## 2. Collect facts with the tools
+
+1. **search_guidelines**: the Russian clinical guideline, in its own words ("аллопуринол стартовая доза"), with age="adults"/"children". The first result includes the whole subsection: take the regimen and the patient group it applies to from there. One search per separate fact (dose, duration, target, monitoring).
+2. **search_medical_literature** for every treatment question: trials that compare exactly the options asked (study_type="rct", e.g. "allopurinol dose escalation gout"), then meta-analyses (study_type="meta"). Keep only studies whose title compares what was asked; if none, search again with other words. Old trials count.
+3. **drug_label**: the US FDA label, for contraindications, interactions, adverse effects, pregnancy. Its doses are American: cite them as «инструкция FDA», never as the Russian guideline.
+4. Web search for what these do not cover.
+
+## 3. Check before answering (in your thinking)
+
+1. Write the fact list: one line per fact — the fact with its number, then its source (КР code and section, PMID, FDA label). Only what the tools returned.
+2. For a treatment question: is there at least one trial or meta-analysis on exactly this question in the list? If not, search now.
+3. Draft the answer from the list. A number or claim that is not in the list: look it up now, or leave it out, or mark it «по моим данным, не проверено».
+4. Where the guideline and the trials point different ways, or the guideline gives a wide range, decide what you would do for this patient and why.
 
 ## Answer format (in Russian, concise)
 
-- First line: the answer (or the emergency line).
-- Differential / management / doses with citations; tables when comparing options.
-- No filler, no repeated warnings, no "обратитесь к врачу".
-- "Источники:" with guideline codes and links.
+- First line: the answer with the numbers.
+- «Обоснование»: the guideline; the trials and meta-analyses (what was compared, how many patients, the result in numbers; a short table for several); where they disagree and your choice.
+- «Что уточнить»: the facts that would change the answer, only if any are missing.
+- «Источники»: guideline codes with links, PubMed links.

@@ -80,31 +80,52 @@ def parse(path):
     return head, out
 
 
+SCHEMA = """
+    create table if not exists guidelines (code text primary key, title text, age text, published text, url text, mkb text);
+    create table if not exists passages (id integer primary key, code text, pos integer, section text, text text);
+    create index if not exists passages_code on passages(code, pos);
+    create virtual table if not exists search using fts5(stems, tokenize='unicode61');
+"""
+
+
+def index_file(con, path):
+    """Одна КР в индекс (старые фрагменты этой КР удаляются). Возвращает (шапка, число фрагментов)."""
+    head, parts = parse(path)
+    old = [r[0] for r in con.execute("select id from passages where code = ?", (head["code"],))]
+    con.executemany("delete from search where rowid = ?", [(i,) for i in old])
+    con.execute("delete from passages where code = ?", (head["code"],))
+    con.execute("insert or replace into guidelines values (:code, :title, :age, :published, :url, :mkb)", head)
+    abbr = head["abbr"]
+    for pos, (section, text) in enumerate(parts):
+        cur = con.execute("insert into passages (code, pos, section, text) values (?, ?, ?, ?)", (head["code"], pos, section, text))
+        # название КР и раздела тоже в индексе: «подагра лечение аллопуринол» находит раздел «3. Лечение» нужной КР
+        # и возраст («взрослые»/«дети»): запрос «пневмония у взрослых» не уходит в детскую КР;
+        # сокращения раскрываются: «продолжительность АБТ» находится по «антибактериальной терапии»
+        found = {w for w in re.findall(r"[A-ZА-ЯЁ][\wА-Яа-яЁё\-]*", text) if w in abbr}
+        expanded = " ".join(abbr[w] for w in sorted(found))
+        con.execute("insert into search (rowid, stems) values (?, ?)",
+                    (cur.lastrowid, stem_text(f"{head['title']} {head['age']} {section} {text} {expanded}")))
+    return head, len(parts)
+
+
+def add(path):
+    """Дописать одну КР в готовый индекс (её скачивает инструмент medical_research, когда КР нет локально)."""
+    con = sqlite3.connect(DB)
+    con.executescript(SCHEMA)
+    head, n = index_file(con, Path(path))
+    con.commit()
+    con.close()
+    return head, n
+
+
 def main():
     tmp = DB.with_suffix(".tmp")
     tmp.unlink(missing_ok=True)
     con = sqlite3.connect(tmp)
-    con.executescript("""
-        create table guidelines (code text primary key, title text, age text, published text, url text, mkb text);
-        create table passages (id integer primary key, code text, pos integer, section text, text text);
-        create index passages_code on passages(code, pos);
-        create virtual table search using fts5(stems, tokenize='unicode61');
-    """)
+    con.executescript(SCHEMA)
     total = 0
     for path in sorted(SRC.glob("*.md")):
-        head, parts = parse(path)
-        con.execute("insert or replace into guidelines values (:code, :title, :age, :published, :url, :mkb)", head)
-        abbr = head["abbr"]
-        for pos, (section, text) in enumerate(parts):
-            cur = con.execute("insert into passages (code, pos, section, text) values (?, ?, ?, ?)", (head["code"], pos, section, text))
-            # название КР и раздела тоже в индексе: «подагра лечение аллопуринол» находит раздел «3. Лечение» нужной КР
-            # и возраст («взрослые»/«дети»): запрос «пневмония у взрослых» не уходит в детскую КР;
-            # сокращения раскрываются: «продолжительность АБТ» находится по «антибактериальной терапии»
-            found = {w for w in re.findall(r"[A-ZА-ЯЁ][\wА-Яа-яЁё\-]*", text) if w in abbr}
-            expanded = " ".join(abbr[w] for w in sorted(found))
-            con.execute("insert into search (rowid, stems) values (?, ?)",
-                        (cur.lastrowid, stem_text(f"{head['title']} {head['age']} {section} {text} {expanded}")))
-        total += len(parts)
+        total += index_file(con, path)[1]
     con.commit()
     con.close()
     tmp.replace(DB)

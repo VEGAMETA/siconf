@@ -35,3 +35,5 @@ llm/law/.venv/
 llm/law/*.log
 llm/health/clinrec.db
 llm/health/clinrec.tmp
+# калибровка медицинских ответов: личная тема, только локально
+llm/eval/health/
