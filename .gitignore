@@ -17,3 +17,7 @@ logs/
 # сторонний код ставится из первоисточника (см. docs/04-prompts.md), не хранится здесь
 llm/tools/inline_visualizer.py
 prompts/skills/visualize.md
+# тексты клинрекомендаций выгружаются скриптом llm/health/clinrec_fetch.py
+llm/health/clinrec/
+llm/health/clinrec_catalog.json
+llm/health/*.log

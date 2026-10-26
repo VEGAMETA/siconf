@@ -53,7 +53,9 @@ TOOLS = {"current_chat_search": "Поиск по текущей беседе", "
          "web_research": "Поиск в интернете с чтением страниц",
          # Inline Visualizer 2.2.3 (github.com/Classic298/open-webui-plugins, BSD-3-Clause; файлы inline-visualizer-v2/tool.py и SKILL.md): графики и схемы прямо в чате;
          # навык visualize — его SKILL.md. Нужна пользовательская настройка «iframe Sandbox Allow Same Origin»
-         "inline_visualizer": "Inline Visualizer"}
+         "inline_visualizer": "Inline Visualizer",
+         # Europe PMC (обзоры, метаанализы, руководства с аннотациями) и openFDA (инструкции к препаратам, через прокси)
+         "medical_research": "Медицинская литература и инструкции"}
 for tool_id, name in TOOLS.items():
     content = open(rf"D:\llm\tools\{tool_id}.py", encoding="utf-8").read()
     desc = next((l.split(":", 1)[1].strip() for l in content.splitlines() if l.startswith("description:")), "")
@@ -105,6 +107,7 @@ api("DELETE", "/api/v1/tools/id/zimage_studio/delete")
 # у моделей из выбора: поиск по беседе и картинки через flux_studio (FLUX 3: генерация, правка, размер, самопроверка).
 # Встроенные generate_image/edit_image (кнопка «Изображение») по умолчанию выключены, чтобы не было двух генераторов
 CHAT_TOOLS = {"gemma-4-26b-a4b"}
+KNOWLEDGE = {"Клинические рекомендации Минздрава РФ"}
 for m in models:
     if m["id"] in CHAT_TOOLS:
         m["meta"]["toolIds"] = list(TOOLS)
@@ -115,6 +118,12 @@ for m in models:
         if "code_interpreter" not in m["meta"]["defaultFeatureIds"]:
             # «Интерпретатор кода» (Pyodide в браузере): считать слова, буквы и арифметику кодом, а не в уме
             m["meta"]["defaultFeatureIds"].append("code_interpreter")
+        # базы знаний (D:\llm\health): модель видит только их названия и ищет по ним встроенными инструментами
+        # (query_knowledge_files и т. п.), в контекст целиком они не вставляются
+        kbs = api("GET", "/api/v1/knowledge/") or {}
+        kbs = kbs.get("items", []) if isinstance(kbs, dict) else kbs
+        m["meta"]["knowledge"] = [{"type": "collection", "id": kb["id"], "name": kb["name"]}
+                                  for kb in kbs if kb.get("name") in KNOWLEDGE]
     m["access_grants"] = []
     r = api("POST", "/api/v1/models/create", m)
     if isinstance(r, dict) and r.get("error"):
