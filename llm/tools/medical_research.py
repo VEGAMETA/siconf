@@ -341,7 +341,18 @@ def _concept(text, mesh):
         return f"({term})"
     extra = [w for w in words if w.lower() not in mesh.lower()]
     core = f'("{mesh}"[mh] OR ({term}))'
-    return f'({core} AND "{" ".join(extra)}"[tiab])' if extra and len(extra) < len(words) else core
+    if not extra or len(extra) >= len(words):
+        return core
+    phrase = " ".join(extra).lower()
+    if re.search(r"release|acting", phrase):
+        # формы с замедленным высвобождением называют по-разному: модель пишет «prolonged-release», статьи — «extended-release»
+        forms = ["extended release", "prolonged release", "modified release", "sustained release", "slow release",
+                 "controlled release", "delayed release", "long acting"]  # без ER/SR: «Exenatide ER», эстрогеновые рецепторы
+        if re.search(r"immediate|ordinary|regular", phrase):
+            forms = ["immediate release"]
+        # форма — в заголовке: в аннотациях «extended-release» встречается у чего угодно (эксенатид, фоновая терапия)
+        return f'({core} AND (' + " OR ".join(f'"{f}"[ti]' for f in forms) + "))"
+    return f'({core} AND "{phrase}"[tiab])'
 
 
 def _card(art):
@@ -384,7 +395,13 @@ async def _evidence(intervention, condition, aspect, comparator, years):
         # обзоры и руководства часто пишут о группе препаратов («antithyroid drugs»), а не о веществе — для этих уровней
         # добавочный поиск: болезнь + фармакологическая группа ([pa]) + аспект. Без группы болезнь + аспект тянули
         # всё подряд (при «схеме лечения» Грейвса — препараты от офтальмопатии)
-        classes = await _drug_class(s, m_i)
+        # вопрос о конкретной форме («metformin extended release») — обзоры о классе препаратов не нужны
+        # (то же правило, что в _concept: часть слов — рубрика, часть — сверх неё; синоним целиком, как thiamazole →
+        # methimazole, формой не считается)
+        words_i = [w for w in re.findall(r"[\w'-]+", intervention) if w.lower() not in CONCEPT_STOP]
+        extra_i = [w for w in words_i if m_i and w.lower() not in m_i.lower()]
+        specific = 0 < len(extra_i) < len(words_i)
+        classes = [] if specific else await _drug_class(s, m_i)
         class_base = (f"{_concept(condition, m_c)} AND (" + " OR ".join(f'"{c}"[pa]' for c in classes) + ")") if condition and classes else ""
         cond = ASPECTS.get(aspect, "").replace("{m}", m_i or intervention)
         if years > 0:
@@ -644,7 +661,7 @@ class Tools:
         Use it for every question about how to treat: which dose, how often, how long, which regimen, how safe, drug A or drug B.
         :param intervention: The drug or treatment in English, one item: "allopurinol", "metformin extended release", "radioiodine".
         :param condition: The disease in English: "gout", "type 2 diabetes". Empty if the question is about the drug in general.
-        :param aspect: What is asked, one of: "dose" (how much: starting, maximum, high vs low), "frequency" (how many times a day: once daily vs divided doses), "duration" (how long, when to stop), "regimen" (treatment scheme or strategy: combination vs monotherapy, titration), "safety" (adverse effects), "efficacy"; empty for all.
+        :param aspect: What is asked, one of: "dose" (how much: starting, maximum, high vs low), "frequency" (how many times a day: once daily vs twice daily or divided doses — use this for any "once or twice a day" question, not "regimen"), "duration" (how long, when to stop), "regimen" (which treatment scheme: drug combination vs monotherapy, titration strategy — not the number of doses per day), "safety" (adverse effects), "efficacy"; empty for all.
         :param comparator: The alternative drug or treatment when two are compared ("febuxostat", "surgery"); empty otherwise.
         :param years: Only the last N years; 0 (default) for all — classic trials are often old.
         :return: Studies grouped by level of evidence with PubMed links.
