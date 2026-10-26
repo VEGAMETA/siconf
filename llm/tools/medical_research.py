@@ -396,8 +396,8 @@ async def _evidence(intervention, condition, aspect, comparator, years):
         # добавочный поиск: болезнь + фармакологическая группа ([pa]) + аспект. Без группы болезнь + аспект тянули
         # всё подряд (при «схеме лечения» Грейвса — препараты от офтальмопатии)
         # вопрос о конкретной форме («metformin extended release») — обзоры о классе препаратов не нужны
-        # (то же правило, что в _concept: часть слов — рубрика, часть — сверх неё; синоним целиком, как thiamazole →
-        # methimazole, формой не считается)
+        # (то же правило, что в _concept: часть слов — рубрика, часть — сверх неё; синоним целиком, как paracetamol →
+        # acetaminophen, формой не считается)
         words_i = [w for w in re.findall(r"[\w'-]+", intervention) if w.lower() not in CONCEPT_STOP]
         extra_i = [w for w in words_i if m_i and w.lower() not in m_i.lower()]
         specific = 0 < len(extra_i) < len(words_i)
