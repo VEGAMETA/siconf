@@ -23,3 +23,8 @@ llm/health/clinrec_catalog.json
 llm/health/*.log
 llm/health/openfda_labels.db
 llm/health/openfda_tmp/
+llm/docs/docs.db
+llm/docs/zim/
+llm/docs/repos/
+llm/docs/.venv/
+llm/docs/*.log

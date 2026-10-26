@@ -49,6 +49,7 @@ Ryzen 7 7700, 64 GB DDR5-6000, RTX 4060 Ti 16 GB, Windows 11. Подробнос
 | [docs/10-lessons.md](docs/10-lessons.md) | грабли и как их обошли |
 | [docs/11-todo.md](docs/11-todo.md) | что ещё не сделано и не проверено |
 | [docs/12-health.md](docs/12-health.md) | медицина: клинрекомендации Минздрава в базе знаний, поиск по литературе (Europe PMC) и инструкциям (openFDA), навык health |
+| [docs/13-offline-docs.md](docs/13-offline-docs.md) | офлайн-документация DevOps: Kubernetes, Helm, Prometheus из исходников, DevDocs и ArchWiki в SQLite FTS5 |
 | [gen/HOW_TO_PROMPT.md](gen/HOW_TO_PROMPT.md) | как писать запросы для видео и картинок |
 
 ## Раскладка репозитория
