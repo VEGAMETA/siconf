@@ -305,8 +305,8 @@ async def _mesh(s, text):
             if whole:
                 return whole[0]
     found = re.findall(r'"([^"]+)"\[MeSH Terms\]', " ".join(x.get("to", "") for x in translations))
-    # сопоставлена только часть фразы — рубрика должна совпадать с написанным хоть одним значимым словом: в «block and
-    # replace therapy» PubMed сводит «therapy» к «therapeutics», и такая рубрика уводит поиск в сторону
+    # сопоставлена только часть фразы — рубрика должна совпадать с написанным хоть одним значимым словом: в названии
+    # схемы лечения вида «X and Y therapy» PubMed сводит «therapy» к «therapeutics», и такая рубрика уводит поиск в сторону
     words = {w.lower()[:6] for w in re.findall(r"[\w'-]+", text) if w.lower() not in CONCEPT_STOP}
     for term in found:
         if words & {w.lower()[:6] for w in re.findall(r"[\w'-]+", term)}:
