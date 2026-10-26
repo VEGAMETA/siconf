@@ -2,11 +2,12 @@
 
 Запуск: python -X utf8 openfda_offline.py   (раз в несколько месяцев, чтобы обновить)
 Скачивает все части выгрузки (≈1,8 ГБ zip), собирает SQLite openfda_labels.db: на каждое вещество и тип препарата —
-самая свежая инструкция и только разделы, которые показывает инструмент medical_research. Архивы после сборки удаляются.
+способ применения и форму выпуска — самая свежая инструкция и только разделы, которые показывает инструмент medical_research. Архивы после сборки удаляются.
 download.open.fda.gov открывается напрямую; если нет — через прокси v2rayN.
 """
 import io
 import json
+import re
 import sqlite3
 import urllib.request
 import zipfile
@@ -16,6 +17,9 @@ HERE = Path(__file__).parent
 DB = HERE / "openfda_labels.db"
 TMP = HERE / "openfda_tmp"
 PROXY = "http://127.0.0.1:10808"
+# пролонгированные и прочие модифицированные формы: у них свои дозы
+RELEASE = re.compile(r"extended[- ]release|delayed[- ]release|sustained[- ]release|controlled[- ]release|modified[- ]release|"
+                     r"prolonged[- ]release|\b(?:ER|XR|XL|SR|CR|DR)\b", re.I)
 SECTIONS = ["boxed_warning", "indications_and_usage", "dosage_and_administration", "contraindications", "do_not_use",
             "warnings_and_cautions", "warnings", "drug_interactions", "adverse_reactions", "pregnancy", "pregnancy_or_breast_feeding",
             "pediatric_use", "geriatric_use", "ask_doctor"]
@@ -54,10 +58,14 @@ def main():
             if not generic:
                 continue
             ptype = " ".join(fda.get("product_type") or [])
-            key = (generic, ptype)
+            route = ", ".join(fda.get("route") or [])
+            names = " ".join((lab.get("spl_product_data_elements") or [])[:1] + (fda.get("brand_name") or [])[:2])
+            form = "modified-release" if RELEASE.search(names) else "immediate"
+            # отдельно по способу применения (внутрь, наружно…) и форме: у таблеток и геля, обычной и пролонгированной формы разные дозы
+            key = (generic, ptype, route, form)
             effective = lab.get("effective_time") or ""
             if key not in best or effective > best[key]["effective"]:
-                best[key] = {"generic": generic, "ptype": ptype, "effective": effective,
+                best[key] = {"generic": generic, "ptype": ptype, "route": route, "form": form, "effective": effective,
                              "brands": ", ".join((fda.get("brand_name") or [])[:6]),
                              "substances": " ".join(fda.get("substance_name") or []).lower(),
                              "set_id": (fda.get("spl_set_id") or [lab.get("set_id", "")])[0],
@@ -66,9 +74,11 @@ def main():
     tmp_db = DB.with_suffix(".tmp")
     tmp_db.unlink(missing_ok=True)
     con = sqlite3.connect(tmp_db)
-    con.execute("create table labels (generic text, ptype text, effective text, brands text, substances text, set_id text, sections text)")
+    con.execute("create table labels (generic text, ptype text, route text, form text, effective text, brands text, substances text, "
+                "set_id text, sections text)")
     con.execute("create table meta (key text primary key, value text)")
-    con.executemany("insert into labels values (:generic, :ptype, :effective, :brands, :substances, :set_id, :sections)", best.values())
+    con.executemany("insert into labels values (:generic, :ptype, :route, :form, :effective, :brands, :substances, :set_id, :sections)",
+                    best.values())
     con.execute("create index labels_generic on labels(generic)")
     con.execute("insert into meta values ('export_date', ?)", (index["export_date"],))
     con.commit()
