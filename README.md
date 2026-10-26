@@ -50,6 +50,7 @@ Ryzen 7 7700, 64 GB DDR5-6000, RTX 4060 Ti 16 GB, Windows 11. Подробнос
 | [docs/11-todo.md](docs/11-todo.md) | что ещё не сделано и не проверено |
 | [docs/12-health.md](docs/12-health.md) | медицина: клинрекомендации Минздрава в базе знаний, поиск по литературе (Europe PMC) и инструкциям (openFDA), навык health |
 | [docs/13-offline-docs.md](docs/13-offline-docs.md) | офлайн-документация DevOps: Kubernetes, Helm, Prometheus из исходников, DevDocs и ArchWiki в SQLite FTS5 |
+| [docs/14-law.md](docs/14-law.md) | законы РФ: кодексы и основные законы в действующей редакции локально (стемминг, ссылки между статьями), указы и постановления из ИПС pravo.gov.ru |
 | [gen/HOW_TO_PROMPT.md](gen/HOW_TO_PROMPT.md) | как писать запросы для видео и картинок |
 
 ## Раскладка репозитория

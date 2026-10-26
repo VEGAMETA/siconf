@@ -28,3 +28,8 @@ llm/docs/zim/
 llm/docs/repos/
 llm/docs/.venv/
 llm/docs/*.log
+# база законов собирается скриптом llm/law/law_build.py
+llm/law/law.db
+llm/law/law.tmp
+llm/law/.venv/
+llm/law/*.log

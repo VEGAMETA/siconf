@@ -57,7 +57,10 @@ TOOLS = {"current_chat_search": "Поиск по текущей беседе", "
          # Europe PMC (обзоры, метаанализы, руководства с аннотациями) и openFDA (инструкции к препаратам, через прокси)
          "medical_research": "Медицинская литература и инструкции",
          # офлайн-документация (D:\llm\docs\docs.db, SQLite FTS5): Kubernetes, Helm, Prometheus, DevDocs, ArchWiki
-         "devops_docs": "Офлайн-документация DevOps"}
+         "devops_docs": "Офлайн-документация DevOps",
+         # законы РФ: кодексы и основные законы в действующей редакции локально (D:\llm\law\law.db, стемминг, ссылки между
+         # статьями) и любые указы, постановления, федеральные законы из ИПС pravo.gov.ru в действующей редакции
+         "law": "Законы и указы РФ"}
 for tool_id, name in TOOLS.items():
     content = open(rf"D:\llm\tools\{tool_id}.py", encoding="utf-8").read()
     desc = next((l.split(":", 1)[1].strip() for l in content.splitlines() if l.startswith("description:")), "")
