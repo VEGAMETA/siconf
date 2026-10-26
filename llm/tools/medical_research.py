@@ -239,6 +239,209 @@ async def _pubmed(query, study_type, years):
     return "\n".join(lines)
 
 
+# ---- search_evidence: запрос строит инструмент (PICO + рубрики MeSH), выдача по уровням доказательности ----
+
+# что выясняем → условие PubMed. {m} — рубрика MeSH препарата: подрубрики «/administration and dosage», «/adverse effects»
+# размечают статьи по смыслу, независимо от слов в заголовке
+ASPECTS = {
+    # подрубрика — только как главная тема статьи ([majr]): с [mh] «дозирование» стоит и там, где препарат лишь фон
+    "dose": '("{m}/administration and dosage"[majr] OR dose[ti] OR doses[ti] OR dosage[ti] OR dosages[ti] OR "high-dose"[tiab] '
+            'OR "low-dose"[tiab] OR "initial dose"[tiab] OR "dose-response"[tiab])',
+    "frequency": '("single daily"[tiab] OR "once daily"[tiab] OR "once-daily"[tiab] OR "divided dose"[tiab] OR "divided doses"[tiab] '
+                 'OR "twice daily"[tiab] OR "dosing frequency"[tiab] OR "dosing interval"[tiab])',
+    "duration": '(duration[ti] OR "long-term"[ti] OR "short-term"[ti] OR withdrawal[ti] OR discontinuation[ti] '
+                'OR "treatment duration"[tiab] OR "duration of treatment"[tiab] OR "duration of therapy"[tiab])',
+    "regimen": '(regimen[tiab] OR regimens[tiab] OR titration[tiab] OR combination[ti] OR strategy[ti] OR protocol[ti])',
+    "safety": '("{m}/adverse effects"[majr] OR adverse[ti] OR safety[ti] OR toxicity[ti] OR "side effects"[ti] OR "adverse events"[tiab])',
+    "efficacy": '("{m}/therapeutic use"[majr] OR efficacy[ti] OR effectiveness[ti])',
+}
+# как модель называет аспект → ключ ASPECTS («dosage» вместо «dose» давало поиск без аспекта)
+ASPECT_ALIASES = {"dose": r"dos(e|es|age|ing)$|^how much|amount|mg", "frequency": r"frequen|how often|times a day|once|twice|divided|schedul|interval",
+                  "duration": r"duration|how long|length|stop|withdraw|discontinu", "regimen": r"regimen|scheme|strateg|protocol|titrat|combination|block",
+                  "safety": r"safe|adverse|side|toxic|risk", "efficacy": r"effic|effective|remission|outcome|benefit"}
+# слова, которые не несут понятия в названии лечения («block and replace therapy» → block replace)
+CONCEPT_STOP = {"and", "or", "of", "the", "with", "for", "in", "therapy", "treatment", "regimen", "drug", "drugs", "use"}
+# слова аспекта в заголовке — бонус при сортировке внутри уровня
+ASPECT_TITLE = {"dose": r"\bdos(e|es|age|ing)\b|\bmg\b|high.dose|low.dose", "frequency": r"single daily|once|divided|twice|frequency|interval",
+                "duration": r"long.term|short.term|duration|withdraw|discontinu|\byears?\b|\bmonths?\b",
+                "regimen": r"regimen|titrat|block|combination|strategy|protocol", "safety": r"adverse|safety|toxic|side effect|agranulocyt|hepat|risk",
+                "efficacy": r"efficacy|effective|remission|outcome"}
+TIERS = [("Руководства", "(guideline[pt] OR practice guideline[pt])", 2),
+         ("Мета-анализы и систематические обзоры", "(meta-analysis[pt] OR systematic review[pt])", 3),
+         ("РКИ", "randomized controlled trial[pt]", 4),
+         ("Крупные сравнительные и наблюдательные исследования",
+          "((comparative study[pt] OR observational study[pt] OR multicenter study[pt] OR clinical trial[pt]) NOT randomized controlled trial[pt])", 3)]
+HUMANS = " NOT (animals[mh] NOT humans[mh])"
+
+
+async def _ncbi(s, endpoint, params, parse):
+    """NCBI без ключа — 3 запроса в секунду; сверх лимита вместо данных приходит ошибка: пауза и повтор."""
+    import asyncio
+    for attempt in range(4):
+        await asyncio.sleep(0.4 + attempt * 1.2)
+        async with s.get(EUTILS + endpoint, params={**params, "tool": "local-owui"}) as r:
+            body = await r.read()
+        try:
+            return parse(body)
+        except Exception:
+            if attempt == 3:
+                raise RuntimeError(f"NCBI {endpoint}: {body[:150]!r}")
+
+
+async def _mesh(s, text):
+    """Рубрика MeSH по автоматическому сопоставлению терминов PubMed («acetylsalicylic acid» → aspirin); нет — None."""
+    if not text:
+        return None
+    r = await _ncbi(s, "esearch.fcgi", {"db": "pubmed", "retmode": "json", "retmax": 0, "term": text},
+                    lambda b: json.loads(b)["esearchresult"])
+    found = re.findall(r'"([^"]+)"\[MeSH Terms\]', " ".join(x.get("to", "") for x in r.get("translationset") or []))
+    # рубрика должна совпадать с написанным хоть одним значимым словом: «block and replace therapy» PubMed сводит к
+    # «therapeutics» — такая рубрика уводит поиск в сторону
+    words = {w.lower()[:6] for w in re.findall(r"[\w'-]+", text) if w.lower() not in CONCEPT_STOP}
+    for term in found:
+        if words & {w.lower()[:6] for w in re.findall(r"[\w'-]+", term)}:
+            return term
+    return None
+
+
+async def _drug_class(s, mesh):
+    """Фармакологические группы вещества по MeSH («Allopurinol» → «Gout Suppressants»): в PubMed — поле [pa]."""
+    if not mesh:
+        return []
+    try:
+        uids = await _ncbi(s, "esearch.fcgi", {"db": "mesh", "retmode": "json", "retmax": 1, "term": f'"{mesh}"[mh]'},
+                           lambda b: json.loads(b)["esearchresult"]["idlist"])
+        if not uids or not uids[0].startswith("68"):
+            return []
+        async with s.get(f"https://id.nlm.nih.gov/mesh/D{uids[0][2:]}.json") as r:
+            pa = (await r.json(content_type=None)).get("pharmacologicalAction") or []
+        labels = []
+        for uri in ([pa] if isinstance(pa, str) else pa)[:3]:
+            async with s.get(uri.replace("http://", "https://") + ".json") as r:
+                label = (await r.json(content_type=None)).get("label")
+            labels.append(label.get("@value") if isinstance(label, dict) else label)
+        return [x for x in labels if x]
+    except Exception:
+        return []
+
+
+def _concept(text, mesh):
+    """Рубрика MeSH или те же слова в заголовке/аннотации (свежие статьи ещё без рубрик). Слова сверх рубрики
+    («metformin extended release» → рубрика metformin) обязательны фразой: иначе пропадает различие форм."""
+    words = [w for w in re.findall(r"[\w'-]+", text) if w.lower() not in CONCEPT_STOP] or re.findall(r"[\w'-]+", text)
+    term = " AND ".join(f"{w}[tiab]" for w in words)
+    if not mesh:
+        return f"({term})"
+    extra = [w for w in words if w.lower() not in mesh.lower()]
+    core = f'("{mesh}"[mh] OR ({term}))'
+    return f'({core} AND "{" ".join(extra)}"[tiab])' if extra and len(extra) < len(words) else core
+
+
+def _card(art):
+    """Карточка статьи: дизайн из разметки PubMed, число пациентов, предложения результатов с цифрами."""
+    title = "".join(art.find(".//ArticleTitle").itertext()) if art.find(".//ArticleTitle") is not None else ""
+    abstract = " ".join("".join(el.itertext()) for el in art.iter("AbstractText"))
+    labelled = [(el.get("Label") or "", "".join(el.itertext())) for el in art.iter("AbstractText")]
+    results = " ".join(t for lab, t in labelled if re.match(r"RESULT|CONCLUSION|FINDING|INTERPRETATION", lab, re.I)) or abstract
+    sentences = re.split(r"(?<=[.;])\s+(?=[A-Z(])", results)
+    # предложения с числами (%, p, ОР, мг) и вывод — в них ответ
+    numeric = [x for x in sentences if re.search(r"\d+(\.\d+)?\s*%|[pP]\s*[<=>]|\b(OR|RR|HR)\b|\d+\s*mg|95%", x)]
+    conclusion = next((t for lab, t in labelled if lab.upper().startswith("CONCLUSION")), sentences[-1] if sentences else "")
+    key = " ".join(dict.fromkeys(numeric[:4] + [conclusion]))
+    n = re.search(r"(\d[\d,]{1,7})\s+(?:\w+\s+){0,3}(?:patients|subjects|participants|individuals|children|adults|women|men|cases)", abstract)
+    types = [t.text for t in art.iter("PublicationType")]
+    return {"pmid": art.findtext(".//PMID"), "title": _clean(title),
+            "journal": art.findtext(".//Journal/ISOAbbreviation") or art.findtext(".//Journal/Title") or "",
+            "year": art.findtext(".//JournalIssue/PubDate/Year") or (art.findtext(".//JournalIssue/PubDate/MedlineDate") or "")[:4],
+            "types": types, "n": n.group(1) if n else "", "key": _clean(key)[:900]}
+
+
+def _design(types):
+    for t, name in (("Meta-Analysis", "мета-анализ"), ("Systematic Review", "систематический обзор"), ("Practice Guideline", "руководство"),
+                    ("Guideline", "руководство"), ("Randomized Controlled Trial", "РКИ"), ("Observational Study", "наблюдательное"),
+                    ("Comparative Study", "сравнительное"), ("Clinical Trial", "клиническое испытание (не РКИ)"),
+                    ("Multicenter Study", "многоцентровое"), ("Review", "обзор")):
+        if t in types:
+            return name
+    return "статья"
+
+
+async def _evidence(intervention, condition, aspect, comparator, years):
+    import math
+    import xml.etree.ElementTree as ET
+    async with aiohttp.ClientSession(trust_env=False, timeout=aiohttp.ClientTimeout(total=90)) as s:
+        m_i, m_c, m_cmp = await _mesh(s, intervention), await _mesh(s, condition), await _mesh(s, comparator)
+        base = _concept(intervention, m_i) + (" AND " + _concept(condition, m_c) if condition else "")
+        if comparator and comparator.lower() not in intervention.lower():
+            base += " AND " + _concept(comparator, m_cmp)
+        # обзоры и руководства часто пишут о группе препаратов («antithyroid drugs»), а не о веществе — для этих уровней
+        # добавочный поиск: болезнь + фармакологическая группа ([pa]) + аспект. Без группы болезнь + аспект тянули
+        # всё подряд (при «схеме лечения» Грейвса — препараты от офтальмопатии)
+        classes = await _drug_class(s, m_i)
+        class_base = (f"{_concept(condition, m_c)} AND (" + " OR ".join(f'"{c}"[pa]' for c in classes) + ")") if condition and classes else ""
+        cond = ASPECTS.get(aspect, "").replace("{m}", m_i or intervention)
+        if years > 0:
+            base += f" AND {date.today().year - years}:{date.today().year}[dp]"
+
+        async def tier_ids(filt, n, with_aspect=True):
+            term = base + (f" AND {cond}" if cond and with_aspect else "") + f" AND {filt}" + HUMANS
+            return await _ncbi(s, "esearch.fcgi", {"db": "pubmed", "retmode": "json", "retmax": n, "sort": "relevance", "term": term},
+                               lambda b: json.loads(b)["esearchresult"].get("idlist") or [])
+
+        found, relaxed = {}, []
+        for name, filt, keep in TIERS:
+            ids = await tier_ids(filt, 12)
+            if class_base and cond and filt in (TIERS[0][1], TIERS[1][1]):
+                term = f"{class_base} AND {cond} AND {filt}{HUMANS}"
+                ids += [i for i in await _ncbi(s, "esearch.fcgi", {"db": "pubmed", "retmode": "json", "retmax": 6, "sort": "relevance", "term": term},
+                                               lambda b: json.loads(b)["esearchresult"].get("idlist") or []) if i not in ids]
+            if not ids and cond:
+                ids = await tier_ids(filt, 6, with_aspect=False)  # по аспекту на этом уровне пусто — без него
+                if ids:
+                    relaxed.append(name)
+            found[name] = ids
+        all_ids = list(dict.fromkeys(i for ids in found.values() for i in ids))
+        if not all_ids:
+            return None, (m_i, m_c, m_cmp)
+        root = await _ncbi(s, "efetch.fcgi", {"db": "pubmed", "retmode": "xml", "id": ",".join(all_ids)}, ET.fromstring)
+        try:
+            async with s.get(ICITE, params={"pmids": ",".join(all_ids), "fl": "pmid,citation_count,relative_citation_ratio"}) as r:
+                icite = {str(x["pmid"]): x for x in (await r.json(content_type=None)).get("data", [])}
+        except Exception:
+            icite = {}
+    cards = {}
+    for art in root.iter("PubmedArticle"):
+        c = _card(art)
+        if "Retracted Publication" not in c["types"]:
+            cards[c["pmid"]] = c
+    out, seen_titles = [], set()
+    for name, _, keep in TIERS:
+        ranked = []
+        for rank, pmid in enumerate(found[name]):
+            c = cards.get(pmid)
+            if not c:
+                continue
+            norm = re.sub(r"\W+", " ", c["title"].lower()).strip()
+            if norm in seen_titles:
+                continue  # дубли: версии одного обзора Cochrane, повторные публикации
+            rcr = (icite.get(pmid) or {}).get("relative_citation_ratio") or 0
+            weak = 1.5 if c["journal"].lower().rstrip(".") in WEAK_JOURNALS else 0
+            title = c["title"].lower()
+            on_aspect = 2.0 if aspect in ASPECT_TITLE and re.search(ASPECT_TITLE[aspect], title) else 0
+            # заголовок называет сам препарат (или его группу) — статья о нём, а не о другом лечении на его фоне
+            on_drug = 1.0 if any(w and w.lower() in title for w in (intervention, m_i)) else 0
+            ranked.append((2 * (1 - rank / 12) + min(math.log2(1 + rcr), 2.5) + (0.3 if c["key"] else -1) - weak + on_aspect + on_drug, norm, c))
+        ranked.sort(key=lambda x: -x[0])
+        picked = []
+        for _, norm, c in ranked:
+            if norm not in seen_titles and len(picked) < keep:
+                seen_titles.add(norm)
+                picked.append(c)
+        if picked:
+            out.append((name, picked))
+    return (out, relaxed, icite), (m_i, m_c, m_cmp)
+
+
 HEALTH_DIR = r"D:\llm\health"
 CATALOG_MAX_AGE = 30 * 86400  # список действующих КР обновляется раз в месяц
 
@@ -386,8 +589,8 @@ class Tools:
         lines.append("\nCite as «КР <code>, раздел <section>». The first result is the whole subsection: base the regimen on it. "
                      "Read other subsections with read_guideline when needed.\nNext step for any treatment question (dose, how often, how "
                      "long, which drug or regimen, \"is this too much\", \"how much is best\"): the guideline gives the allowed range, trials "
-                     "show what works better within it — call search_medical_literature now with study_type=\"rct\" (3-5 English words: "
-                     "drug, condition, what is compared), then study_type=\"meta\".")
+                     "show what works better within it — call search_evidence now (intervention, condition, aspect: dose / frequency / "
+                     "duration / regimen / safety / efficacy, comparator if two options).")
         return "\n".join(lines)
 
     def read_guideline(self, code: str, section: str = "", offset: int = 0) -> str:
@@ -419,11 +622,54 @@ class Tools:
         name = next((s for s in sections if s.lower().startswith(want)), None) or next((s for s in sections if want in s.lower()), None)
         if not name:
             return f'No section "{section}" in КР {code}. Sections: ' + "; ".join(sections)
-        text = "\n".join(sections[name])
+        # глава целиком («3. Лечение»): её вводный текст и все подразделы — иначе модель видела только введение
+        # без доз и решала, что в КР их нет
+        subs = [s for s in sections if s.startswith(name + " › ")] if " › " not in name else []
+        text = "\n".join(sections[name] + [f"\n### {s.split(' › ', 1)[1]}\n" + "\n".join(sections[s]) for s in subs])
         offset = max(0, int(offset or 0))
         more = (f"\n[… ещё {len(text) - offset - SECTION_CHARS} символов: read_guideline(\"{code}\", \"{name[:40]}\", offset={offset + SECTION_CHARS})]"
                 if len(text) > offset + SECTION_CHARS else "")
         return f"{_guideline_line(head)}\nРаздел: {name}\n\n{text[offset:offset + SECTION_CHARS]}{more}"
+
+    async def search_evidence(self, intervention: str, condition: str = "", aspect: str = "", comparator: str = "", years: int = 0) -> str:
+        """
+        Evidence for a treatment question, by level: guidelines, meta-analyses and systematic reviews, randomized trials, large comparative and observational studies. You describe the question; the tool builds the PubMed search with MeSH terms itself. For each study: design (from PubMed), number of patients, what it compared (title) and the result sentences with numbers.
+        Use it for every question about how to treat: which dose, how often, how long, which regimen, how safe, drug A or drug B.
+        :param intervention: The drug or treatment in English, one item: "allopurinol", "metformin extended release", "radioiodine".
+        :param condition: The disease in English: "gout", "type 2 diabetes". Empty if the question is about the drug in general.
+        :param aspect: What is asked, one of: "dose" (how much: starting, maximum, high vs low), "frequency" (how many times a day: once daily vs divided doses), "duration" (how long, when to stop), "regimen" (treatment scheme or strategy: combination vs monotherapy, titration), "safety" (adverse effects), "efficacy"; empty for all.
+        :param comparator: The alternative drug or treatment when two are compared ("febuxostat", "surgery"); empty otherwise.
+        :param years: Only the last N years; 0 (default) for all — classic trials are often old.
+        :return: Studies grouped by level of evidence with PubMed links.
+        """
+        aspect = (aspect or "").strip().lower()
+        if aspect and aspect not in ASPECTS:
+            aspect = next((k for k, pat in ASPECT_ALIASES.items() if re.search(pat, aspect)), "")
+        try:
+            res, mesh = await _evidence((intervention or "").strip(), (condition or "").strip(), aspect, (comparator or "").strip(), int(years or 0))
+        except Exception as e:
+            return f"PubMed error: {e}. Try search_medical_literature with a short query."
+        terms = " | ".join(f"{a} → {b or 'нет рубрики MeSH, поиск по словам'}" for a, b in
+                           zip((intervention, condition, comparator), mesh) if a)
+        if not res:
+            return f"Nothing found ({terms}, aspect={aspect or 'all'}). Check the English names, drop the comparator or the aspect."
+        tiers, relaxed, icite = res
+        lines = [f"Доказательства: {terms}; аспект: {aspect or 'все'}", ""]
+        if relaxed:
+            lines.append(f"(на уровнях «{', '.join(relaxed)}» по аспекту «{aspect}» ничего — показано без него)\n")
+        for name, cards in tiers:
+            lines.append(f"## {name}")
+            for c in cards:
+                info = icite.get(c["pmid"]) or {}
+                cites = f", цитирований {info.get('citation_count')}" if info.get("citation_count") is not None else ""
+                n = f", n={c['n']}" if c["n"] else ""
+                lines.append(f"- {c['title']}\n  {_design(c['types'])}{n} | {c['journal']} {c['year']}{cites} | https://pubmed.ncbi.nlm.nih.gov/{c['pmid']}/")
+                if c["key"]:
+                    lines.append(f"  Результаты: {c['key']}")
+            lines.append("")
+        lines.append("Use the design and n exactly as given above. Base the answer on studies whose title compares what was asked; "
+                     "say what each compared and the result numbers. Where levels disagree, prefer meta-analyses and RCTs, and say so.")
+        return "\n".join(lines)
 
     async def search_medical_literature(self, query: str, study_type: str = "any", years: int = 0) -> str:
         """
