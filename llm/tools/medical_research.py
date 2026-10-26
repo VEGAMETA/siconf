@@ -259,7 +259,7 @@ ASPECTS = {
 ASPECT_ALIASES = {"dose": r"dos(e|es|age|ing)$|^how much|amount|mg", "frequency": r"frequen|how often|times a day|once|twice|divided|schedul|interval",
                   "duration": r"duration|how long|length|stop|withdraw|discontinu", "regimen": r"regimen|scheme|strateg|protocol|titrat|combination|block",
                   "safety": r"safe|adverse|side|toxic|risk", "efficacy": r"effic|effective|remission|outcome|benefit"}
-# слова, которые не несут понятия в названии лечения («block and replace therapy» → block replace)
+# слова, которые не несут понятия в названии лечения («combination therapy» → combination)
 CONCEPT_STOP = {"and", "or", "of", "the", "with", "for", "in", "therapy", "treatment", "regimen", "drug", "drugs", "use"}
 # смежные аспекты, которые ищутся вместе с заданным
 RELATED = {"dose": ["safety"], "safety": ["dose"], "duration": ["efficacy"], "efficacy": ["duration", "regimen"],
