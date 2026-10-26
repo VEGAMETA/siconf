@@ -261,6 +261,9 @@ ASPECT_ALIASES = {"dose": r"dos(e|es|age|ing)$|^how much|amount|mg", "frequency"
                   "safety": r"safe|adverse|side|toxic|risk", "efficacy": r"effic|effective|remission|outcome|benefit"}
 # слова, которые не несут понятия в названии лечения («block and replace therapy» → block replace)
 CONCEPT_STOP = {"and", "or", "of", "the", "with", "for", "in", "therapy", "treatment", "regimen", "drug", "drugs", "use"}
+# смежные аспекты, которые ищутся вместе с заданным
+RELATED = {"dose": ["safety"], "safety": ["dose"], "duration": ["efficacy"], "efficacy": ["duration", "regimen"],
+           "regimen": ["safety", "efficacy"], "frequency": []}
 # слова аспекта в заголовке — бонус при сортировке внутри уровня
 ASPECT_TITLE = {"dose": r"\bdos(e|es|age|ing)\b|\bmg\b|high.dose|low.dose", "frequency": r"single daily|once|divided|twice|frequency|interval",
                 "duration": r"long.term|short.term|duration|withdraw|discontinu|\byears?\b|\bmonths?\b",
@@ -403,28 +406,32 @@ async def _evidence(intervention, condition, aspect, comparator, years):
         specific = 0 < len(extra_i) < len(words_i)
         classes = [] if specific else await _drug_class(s, m_i)
         class_base = (f"{_concept(condition, m_c)} AND (" + " OR ".join(f'"{c}"[pa]' for c in classes) + ")") if condition and classes else ""
-        cond = ASPECTS.get(aspect, "").replace("{m}", m_i or intervention)
+        # заданный аспект и смежные с ним: модель часто выбирает соседний («сколько лечиться» → efficacy вместо
+        # duration), а на «не много ли» нужны и доза, и безопасность. Смежным — по одному месту на уровне: в общей
+        # выдаче огромные исследования безопасности (FAST, CARES) вытесняли РКИ дозы за счёт цитирований
+        related = [a for a in RELATED.get(aspect, []) if a != aspect] if aspect in ASPECTS else []
+        cond_of = lambda a: ASPECTS[a].replace("{m}", m_i or intervention)
+        cond = cond_of(aspect) if aspect in ASPECTS else ""
+        cond_rel = "(" + " OR ".join(cond_of(a) for a in related) + ")" if related else ""
         if years > 0:
             base += f" AND {date.today().year - years}:{date.today().year}[dp]"
 
-        async def tier_ids(filt, n, with_aspect=True):
-            term = base + (f" AND {cond}" if cond and with_aspect else "") + f" AND {filt}" + HUMANS
+        async def esearch(term, n):
             return await _ncbi(s, "esearch.fcgi", {"db": "pubmed", "retmode": "json", "retmax": n, "sort": "relevance", "term": term},
                                lambda b: json.loads(b)["esearchresult"].get("idlist") or [])
 
-        found, relaxed = {}, []
+        found, found_rel, relaxed = {}, {}, []
         for name, filt, keep in TIERS:
-            ids = await tier_ids(filt, 12)
+            ids = await esearch(base + (f" AND {cond}" if cond else "") + f" AND {filt}{HUMANS}", 12)
             if class_base and cond and filt in (TIERS[0][1], TIERS[1][1]):
-                term = f"{class_base} AND {cond} AND {filt}{HUMANS}"
-                ids += [i for i in await _ncbi(s, "esearch.fcgi", {"db": "pubmed", "retmode": "json", "retmax": 6, "sort": "relevance", "term": term},
-                                               lambda b: json.loads(b)["esearchresult"].get("idlist") or []) if i not in ids]
-            if not ids and cond:
-                ids = await tier_ids(filt, 6, with_aspect=False)  # по аспекту на этом уровне пусто — без него
+                ids += [i for i in await esearch(f"{class_base} AND {cond} AND {filt}{HUMANS}", 6) if i not in ids]
+            if not ids and cond and not cond_rel:
+                ids = await esearch(f"{base} AND {filt}{HUMANS}", 6)  # по аспекту на этом уровне пусто — без него
                 if ids:
                     relaxed.append(name)
             found[name] = ids
-        all_ids = list(dict.fromkeys(i for ids in found.values() for i in ids))
+            found_rel[name] = [i for i in await esearch(f"{base} AND {cond_rel} AND {filt}{HUMANS}", 8) if i not in ids] if cond_rel else []
+        all_ids = list(dict.fromkeys(i for d in (found, found_rel) for ids in d.values() for i in ids))
         if not all_ids:
             return None, (m_i, m_c, m_cmp)
         root = await _ncbi(s, "efetch.fcgi", {"db": "pubmed", "retmode": "xml", "id": ",".join(all_ids)}, ET.fromstring)
@@ -438,29 +445,39 @@ async def _evidence(intervention, condition, aspect, comparator, years):
         c = _card(art)
         if "Retracted Publication" not in c["types"]:
             cards[c["pmid"]] = c
-    out, seen_titles = [], set()
-    for name, _, keep in TIERS:
+
+    def rank(pmids, asp):
         ranked = []
-        for rank, pmid in enumerate(found[name]):
+        for pos, pmid in enumerate(pmids):
             c = cards.get(pmid)
             if not c:
                 continue
             norm = re.sub(r"\W+", " ", c["title"].lower()).strip()
-            if norm in seen_titles:
-                continue  # дубли: версии одного обзора Cochrane, повторные публикации
             rcr = (icite.get(pmid) or {}).get("relative_citation_ratio") or 0
             weak = 1.5 if c["journal"].lower().rstrip(".") in WEAK_JOURNALS else 0
             title = c["title"].lower()
-            on_aspect = 2.0 if aspect in ASPECT_TITLE and re.search(ASPECT_TITLE[aspect], title) else 0
+            on_aspect = 2.0 if any(a in ASPECT_TITLE and re.search(ASPECT_TITLE[a], title) for a in asp) else 0
             # заголовок называет сам препарат (или его группу) — статья о нём, а не о другом лечении на его фоне
             on_drug = 1.0 if any(w and w.lower() in title for w in (intervention, m_i)) else 0
-            ranked.append((2 * (1 - rank / 12) + min(math.log2(1 + rcr), 2.5) + (0.3 if c["key"] else -1) - weak + on_aspect + on_drug, norm, c))
-        ranked.sort(key=lambda x: -x[0])
+            ranked.append((2 * (1 - pos / 12) + min(math.log2(1 + rcr), 2.5) + (0.3 if c["key"] else -1) - weak + on_aspect + on_drug, norm, c))
+        return [x[1:] for x in sorted(ranked, key=lambda x: -x[0])]
+
+    out, seen_titles = [], set()
+    for name, _, keep in TIERS:
+        main, extra = rank(found[name], [aspect]), rank(found_rel[name], related)
         picked = []
-        for _, norm, c in ranked:
-            if norm not in seen_titles and len(picked) < keep:
-                seen_titles.add(norm)
-                picked.append(c)
+
+        def take(pool, limit):
+            for norm, c in pool:  # дубли: версии одного обзора Cochrane, повторные публикации
+                if len(picked) >= limit:
+                    break
+                if norm not in seen_titles:
+                    seen_titles.add(norm)
+                    picked.append(c)
+
+        take(main, keep - 1 if extra else keep)
+        take(extra, len(picked) + 1)
+        take(main, keep)  # смежного не нашлось — место заданному
         if picked:
             out.append((name, picked))
     return (out, relaxed, icite), (m_i, m_c, m_cmp)
