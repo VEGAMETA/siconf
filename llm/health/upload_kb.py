@@ -43,6 +43,8 @@ def existing_names(kb_id):
 
 
 def upload(kb_id, path):
+    # Open WebUI считает эмбеддинги дважды (коллекция файла и коллекция базы), но без process=true файл в базу не добавить:
+    # file/add требует извлечённый текст, а его извлечение (и data/content/update) тоже запускает эмбеддинги
     with open(path, "rb") as fh:
         f = SESSION.post(f"{BASE}/api/v1/files/", headers=HEADERS, params={"process": "true", "process_in_background": "false"},
                          files={"file": (path.name, fh, "text/markdown")}, timeout=3600).json()

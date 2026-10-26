@@ -1,11 +1,14 @@
 """
 title: Медицинская литература и инструкции к препаратам
-description: Поиск по научной медицинской литературе (Europe PMC: PubMed и не только, с аннотациями; по умолчанию систематические обзоры, метаанализы и клинические руководства за последние 10 лет) и официальные инструкции к препаратам (openFDA, через прокси — из России закрыт). Ответы со ссылками на PubMed для проверки.
+description: Поиск по научной медицинской литературе (Europe PMC: PubMed и не только, с аннотациями; по умолчанию систематические обзоры, метаанализы и клинические руководства за последние 10 лет) и официальные инструкции к препаратам (openFDA, через прокси — из России закрыт; если сайт недоступен — локальная копия). Ответы со ссылками на PubMed для проверки.
 author: local
-version: 0.1.0
+version: 0.2.0
 """
 
+import json
+import os
 import re
+import sqlite3
 import urllib.parse
 from datetime import date
 
@@ -14,6 +17,7 @@ import aiohttp
 EUROPE_PMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 OPENFDA = "https://api.fda.gov/drug/label.json"
 OPENFDA_PROXY = "http://127.0.0.1:10808"  # v2rayN: api.fda.gov отвечает 403 на запросы из России
+OFFLINE_DB = r"D:\llm\health\openfda_labels.db"  # запасная копия на случай недоступности сайта (D:\llm\health\openfda_offline.py)
 RESULTS = 6
 ABSTRACT_CHARS = 1500
 LABEL_SECTION_CHARS = 1800
@@ -30,6 +34,23 @@ LABEL_SECTIONS = [
 
 def _clean(text):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or "")).strip()
+
+
+def _offline_label(name, score):
+    """Инструкция из локальной копии openFDA (D:\\llm\\health\\openfda_labels.db). Возвращает (label, дата выгрузки) или (None, дата/None)."""
+    if not os.path.exists(OFFLINE_DB):
+        return None, None
+    con = sqlite3.connect(f"file:{OFFLINE_DB}?mode=ro", uri=True)
+    try:
+        exported = (con.execute("select value from meta where key = 'export_date'").fetchone() or [""])[0]
+        rows = con.execute("select generic, ptype, effective, brands, set_id, sections from labels "
+                           "where generic = ? or generic like ? or substances like ? limit 200",
+                           (name, f"{name}%", f"%{name}%")).fetchall()
+    finally:
+        con.close()
+    labels = [{"openfda": {"generic_name": [g], "product_type": [p], "brand_name": [b for b in brands.split(", ") if b], "spl_set_id": [sid]},
+               "effective_time": eff, **json.loads(sections)} for g, p, eff, brands, sid, sections in rows]
+    return (max(labels, key=lambda lab: (score(lab), "PRESCRIPTION" in lab["openfda"]["product_type"][0])) if labels else None), exported
 
 
 class Tools:
@@ -92,7 +113,7 @@ class Tools:
             single = " and " not in generic and "," not in generic
             return (single, generic.startswith(name), "contraindications" in lab or "adverse_reactions" in lab)
 
-        label = None
+        label, offline, online_error = None, None, None
         try:
             async with aiohttp.ClientSession(trust_env=False) as s:
                 for q in queries:
@@ -102,14 +123,26 @@ class Tools:
                             if found:
                                 label = max(found, key=score)
                                 break
+                        elif r.status != 404:  # 404 — просто не найдено; остальное (403, 5xx) — сайт недоступен
+                            online_error = f"HTTP {r.status}"
+                            break
         except Exception as e:
-            return f"openFDA error: {e}. The proxy {OPENFDA_PROXY} (v2rayN) may be off."
+            online_error = str(e) or type(e).__name__
+        if online_error:
+            # сайт недоступен (прокси выключен или заблокирован) — локальная копия, собранная openfda_offline.py
+            label, offline = _offline_label(name, score)
+            if not label:
+                return (f"openFDA is unreachable ({online_error}; proxy {OPENFDA_PROXY}) and the offline copy has no label for \"{drug}\"."
+                        if offline else f"openFDA is unreachable ({online_error}) and there is no offline copy ({OFFLINE_DB}).")
         if not label:
             return f'No FDA label for "{drug}". Check the English generic name (INN); some drugs are not sold in the USA.'
         fda = label.get("openfda") or {}
         lines = [f"FDA drug label: {', '.join(fda.get('generic_name', [name])[:2])} | brands: {', '.join(fda.get('brand_name', [])[:4])} | "
                  f"{', '.join(fda.get('product_type', []))} | effective {label.get('effective_time', '')}",
-                 "Note: US label; doses and registered indications in Russia may differ (check the Russian instruction in ГРЛС).", ""]
+                 "Note: US label; doses and registered indications in Russia may differ (check the Russian instruction in ГРЛС)."]
+        if offline:
+            lines.append(f"Offline copy of openFDA from {offline} (the site is unreachable now); newer label changes may be missing.")
+        lines.append("")
         for key, title in LABEL_SECTIONS:
             text = _clean(" ".join(label.get(key) or []))
             if text:

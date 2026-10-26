@@ -21,3 +21,5 @@ prompts/skills/visualize.md
 llm/health/clinrec/
 llm/health/clinrec_catalog.json
 llm/health/*.log
+llm/health/openfda_labels.db
+llm/health/openfda_tmp/
