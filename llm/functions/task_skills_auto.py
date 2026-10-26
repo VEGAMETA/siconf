@@ -1,8 +1,8 @@
 """
 title: Навыки по задаче
-description: Включает навыки document-analysis (приложен документ или спрашивают о нём), data-analysis (таблицы, расчёты, графики), technical-translation (просьба перевести), health (здоровье, симптомы, лекарства) и law (законы, права, суды, штрафы) ровно в тех сообщениях, где они нужны.
+description: Включает навыки document-analysis (приложен документ или спрашивают о нём), data-analysis (таблицы, расчёты, графики), technical-translation (просьба перевести), health (здоровье, симптомы, лекарства; торговые названия по ГРЛС — справка с МНН) и law (законы, права, суды, штрафы) ровно в тех сообщениях, где они нужны.
 author: local
-version: 0.3.0
+version: 0.4.0
 """
 
 import re
@@ -49,6 +49,85 @@ def _text(content):
     return ""
 
 
+# торговые названия лекарств → МНН из ГРЛС (D:\llm\health\grls_build.py): модель путала их по памяти (торговое название
+# приняла за другое вещество). Справка дописывается к сообщению до того, как модель начнёт думать
+GRLS_DB = r"D:\llm\health\grls.db"
+_grls = {"mtime": None, "keys": {}}
+ENDINGS = re.compile(r"(?:ами|ом|ой|ем|ей|ах|ов|ам|а|у|е|ы|и|ю|я)$")
+
+
+def _stem(words):
+    """Основа последнего слова; слова из 1-2 букв («АМ», «и») не трогаются — иначе «конкор ам» совпадал
+    с «конкор и» и Конкор (бисопролол) становился Конкор АМ (бисопролол + амлодипин)."""
+    last = words[-1]
+    if len(last) > 3:
+        last = ENDINGS.sub("", last)
+    elif len(last) == 3:
+        last = re.sub(r"[аеиуыюя]$", "", last)  # «шпа», «шпы» → «шп»
+    return " ".join(words[:-1] + [last])
+
+
+def _brands():
+    import os
+    import sqlite3
+    try:
+        mtime = os.path.getmtime(GRLS_DB)
+    except OSError:
+        return {}
+    if _grls["mtime"] != mtime:
+        con = sqlite3.connect(f"file:{GRLS_DB}?mode=ro", uri=True)
+        keys = {}
+        for k, t, i, g, a in con.execute("select key, trade, inn, grp, active from names where searchable = 1"):
+            # по основе: «но шпа» и «но-шпы» сводятся к «но шп»
+            stem = _stem(k.split())
+            if len(stem) >= 4:
+                keys.setdefault(stem, (k, (t, i, g, a)))
+        _grls["keys"] = keys
+        con.close()
+        _grls["mtime"] = mtime
+    return _grls["keys"]
+
+
+def _find_brands(text):
+    """Торговые названия в сообщении, с падежами («омеза», «глюкофаж лонг», «но-шпу»)."""
+    keys = _brands()
+    if not keys:
+        return []
+    words = re.findall(r"[a-zа-яё0-9]+", re.sub(r"[\-]", " ", text.lower().replace("ё", "е")))
+    found, i = {}, 0
+    while i < len(words):
+        for n in (3, 2, 1):
+            chunk = words[i:i + n]
+            if len(chunk) < n:
+                continue
+            stem = _stem(chunk)
+            hit = None
+            if stem in keys:
+                # слово сообщения совпадает с названием целиком, кроме последней буквы: «эутироксом» — «эутирокс», «шпы» — «шпа»;
+                # «в корне» — не «Корнам» (у бренда срезалось «-ам», основа «корн» совпала случайно)
+                key, last = keys[stem][0], chunk[-1]
+                name_last = key.split()[-1]
+                common = len(next((name_last[:j] for j in range(min(len(name_last), len(last)), 0, -1) if name_last[:j] == last[:j]), ""))
+                hit = stem if common >= len(name_last) - 1 else None
+            if hit:
+                found[hit] = keys[hit][1]
+                i += n - 1
+                break
+        i += 1
+    return list(found.values())
+
+
+def _append(message, note):
+    content = message.get("content")
+    if isinstance(content, str):
+        message["content"] = content + note
+    elif isinstance(content, list):
+        for part in reversed(content):
+            if isinstance(part, dict) and part.get("type") == "text":
+                part["text"] = part.get("text", "") + note
+                break
+
+
 def _has_document(body, message):
     """Приложен файл, который не картинка (картинки идут через image_url и навык картинок)."""
     files = list(body.get("files") or []) + list(message.get("files") or [])
@@ -76,8 +155,13 @@ class Filter:
             skills.add("data-analysis")
         if TRANSLATE.search(text):
             skills.add("technical-translation")
-        if HEALTH.search(text):
+        brands = _find_brands(text)
+        if HEALTH.search(text) or brands:
             skills.add("health")
+        if brands:
+            lines = [f"{t} — МНН: {i}" + (f" ({g})" if g else "") + ("" if a else ", регистрация не действует") for t, i, g, a in brands[:5]]
+            _append(last, "\n\n[Справка ГРЛС о названиях лекарств в сообщении: " + "; ".join(lines) +
+                    ". Ищи и отвечай по МНН.]")
         if LAW.search(text):
             skills.add("law")
         if skills:

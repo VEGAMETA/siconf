@@ -37,3 +37,6 @@ llm/health/clinrec.db
 llm/health/clinrec.tmp
 # калибровка медицинских ответов: личная тема, только локально
 llm/eval/health/
+llm/health/grls.db
+llm/health/grls.tmp
+llm/health/grls_tmp/

@@ -294,9 +294,16 @@ async def _mesh(s, text):
         return None
     r = await _ncbi(s, "esearch.fcgi", {"db": "pubmed", "retmode": "json", "retmax": 0, "term": text},
                     lambda b: json.loads(b)["esearchresult"])
-    found = re.findall(r'"([^"]+)"\[MeSH Terms\]', " ".join(x.get("to", "") for x in r.get("translationset") or []))
-    # рубрика должна совпадать с написанным хоть одним значимым словом: «block and replace therapy» PubMed сводит к
-    # «therapeutics» — такая рубрика уводит поиск в сторону
+    translations = r.get("translationset") or []
+    # всё написанное целиком сопоставлено рубрике — это синоним («paracetamol» → acetaminophen), берём
+    for x in translations:
+        if x.get("from", "").lower().strip() == text.lower().strip():
+            whole = re.findall(r'"([^"]+)"\[MeSH Terms\]', x.get("to", ""))
+            if whole:
+                return whole[0]
+    found = re.findall(r'"([^"]+)"\[MeSH Terms\]', " ".join(x.get("to", "") for x in translations))
+    # сопоставлена только часть фразы — рубрика должна совпадать с написанным хоть одним значимым словом: в «block and
+    # replace therapy» PubMed сводит «therapy» к «therapeutics», и такая рубрика уводит поиск в сторону
     words = {w.lower()[:6] for w in re.findall(r"[\w'-]+", text) if w.lower() not in CONCEPT_STOP}
     for term in found:
         if words & {w.lower()[:6] for w in re.findall(r"[\w'-]+", term)}:
