@@ -170,7 +170,7 @@ class Tools:
     def law_article(self, act: str, number: str, offset: int = 0) -> str:
         """
         Full current text of an article of a code or law from the local base, with the articles it refers to and the articles that refer to it.
-        :param act: Act key or name: "tk", "gk1".."gk4", "gpk", "sk", "zhk", "koap", "uk", "nk1", "nk2", "constitution", "zozpp", "fz323", "fz152", "osago", or "ТК", "ГК", "жилищный"... For ГК and НК the part is chosen by the article number.
+        :param act: Which act, by key or Russian name. Keys: "uk" = Уголовный кодекс (УК), "tk" = Трудовой (ТК), "gk1".."gk4" = Гражданский (ГК, the part is chosen by the article number), "gpk" = Гражданский процессуальный (ГПК), "sk" = Семейный (СК), "zhk" = Жилищный (ЖК), "koap" = КоАП, "nk1"/"nk2" = Налоговый (НК, part by article number), "constitution" = Конституция, "zozpp" = закон о защите прав потребителей, "fz323" = 323-ФЗ об охране здоровья, "fz152" = 152-ФЗ о персональных данных, "osago" = закон об ОСАГО. Russian abbreviations and names also work ("УК", "уголовный"). Use the act the user named.
         :param number: Article number, e.g. "81", "1102", "18", "8.1".
         :param offset: Character offset for very long articles.
         :return: Article text, its chapter, references both ways and the official source.
