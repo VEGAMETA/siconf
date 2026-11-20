@@ -1,4 +1,4 @@
-"""Настройка моделей Open WebUI через API. Запуск: загрузить ключи из D:\gen\.env и python owui_setup.py"""
+r"""Настройка моделей Open WebUI через API. Запуск: загрузить ключи из D:\gen\.env и python owui_setup.py"""
 import json
 import os
 import urllib.error
@@ -44,7 +44,21 @@ models = [
      "meta": {"description": "Gemma 4 без размышлений. Скрыта из выбора: служебная модель для поисковых запросов и заголовков.",
               "capabilities": {**CAPS, "vision": True}, "hidden": True},
      "params": {**GEMMA, "system": SYS_PLAIN}},
+    # 2026-11-20: DeepSeek-V4-Pro-Qwen3.5-9B heretic (пресет llama.cpp с тем же id, 192K, MTP). Qwen3.5 сама размышляет
+    # (тег <|think|> не нужен) и её вызовы инструментов llama.cpp разбирает — режим native. Плана размышлений Gemma нет:
+    # у дистиллята DeepSeek свой стиль. Сжатие беседы с 150K (контекст 192K)
+    {"id": "deepseek-v4-qwen3.5-9b-heretic", "base_model_id": None, "name": "DeepSeek V4 · Qwen3.5 9B (без цензуры)",
+     "meta": {"description": "Qwen3.5-9B, дистиллят DeepSeek-V4-Pro (математика, естественные науки), отказы сняты (Heretic). "
+                             "Контекст 192K, размышляет, понимает картинки, ~46-54 ток/с. Ответы проверять: модель маленькая.",
+              "capabilities": {**CAPS, "vision": True}},
+     "params": {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "function_calling": "native",
+                "compact_token_threshold": 150000,
+                "system": SYS_PLAIN.replace(
+                    "You (Gemma 4) were released in spring 2026 and your training data ends before that",
+                    "You (DeepSeek-V4-Pro-Qwen3.5-9B, a Qwen3.5-9B model distilled from DeepSeek-V4-Pro) were released in 2026 "
+                    "and your training data ends before that")}},
 ]
+assert "Gemma 4" not in models[-1]["params"]["system"], "в промпте DeepSeek осталась строка про Gemma"
 
 # свои инструменты из D:\llm\tools: id = имя файла, описание — из шапки файла
 # web_research — свой search_web (SearXNG с фильтром по времени + текст лучших страниц): функция с тем же именем
@@ -111,12 +125,14 @@ api("DELETE", "/api/v1/tools/id/zimage_studio/delete")
 
 # у моделей из выбора: поиск по беседе и картинки через flux_studio (FLUX 3: генерация, правка, размер, самопроверка).
 # Встроенные generate_image/edit_image (кнопка «Изображение») по умолчанию выключены, чтобы не было двух генераторов
-CHAT_TOOLS = {"gemma-4-26b-a4b"}
+CHAT_TOOLS = {"gemma-4-26b-a4b", "deepseek-v4-qwen3.5-9b-heretic"}
+# фильтры, которые сами обращаются к Gemma: у других моделей они бы заставляли маршрутизатор (models-max 1) менять модель
+GEMMA_ONLY_FILTERS = {"claim_check"}
 KNOWLEDGE = {"Клинические рекомендации Минздрава РФ"}
 for m in models:
     if m["id"] in CHAT_TOOLS:
         m["meta"]["toolIds"] = list(TOOLS)
-        m["meta"]["filterIds"] = list(FILTERS)
+        m["meta"]["filterIds"] = [f for f in FILTERS if m["id"].startswith("gemma") or f not in GEMMA_ONLY_FILTERS]
         m["meta"].setdefault("defaultFeatureIds", [])
         if "memory" not in m["meta"]["defaultFeatureIds"]:
             m["meta"]["defaultFeatureIds"].append("memory")  # кнопка «Память» включена в новых чатах
@@ -141,7 +157,7 @@ for gone in ("gpt-oss-20b", "gpt-oss-20b-high", "gemma-4-26b-a4b-long"):
 
 cfg = api("GET", "/api/v1/configs/models") or {}
 cfg.update({"DEFAULT_MODELS": "gemma-4-26b-a4b",
-            "MODEL_ORDER_LIST": ["gemma-4-26b-a4b"]})
+            "MODEL_ORDER_LIST": ["gemma-4-26b-a4b", "deepseek-v4-qwen3.5-9b-heretic"]})
 r = api("POST", "/api/v1/configs/models", cfg)
 print("модель по умолчанию ->", r.get("DEFAULT_MODELS") if isinstance(r, dict) else r)
 print("в чате:", [m["name"] for m in (api("GET", "/api/models") or {}).get("data", [])])
